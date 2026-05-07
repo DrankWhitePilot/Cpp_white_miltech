@@ -83,5 +83,15 @@ int main(int argc, char** argv) {
         prev_br_ticks = br_ticks;
     }
 
+    if (!fin.eof()) {
+        std::cerr << "error: malformed input file\n";
+        return 1;
+    }
+
+    if (is_first_row) {
+        std::cerr << "error: input file is empty\n";
+        return 1;
+    }
+
     return 0;
 }
