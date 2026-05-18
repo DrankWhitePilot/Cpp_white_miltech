@@ -4,11 +4,6 @@
 #include <fstream>
 #include <iostream>
 
-// Debugging exercise notes:
-// this file intentionally contains four runtime defects.
-// The defects are related to malformed input shape, invalid numeric values,
-// unsafe time deltas, and empty logs. Exact locations are not marked on purpose.
-
 const int EXPECTED_FIELD_COUNT = 7;
 const int MAX_LINE_LENGTH = 256;
 
@@ -38,73 +33,139 @@ int split_line(char line[], char* fields[], int max_fields) {
     return count;
 }
 
-long parse_long(const char* text) {
+bool parse_long(const char* text, long& value) {
     char* end = nullptr;
-    const long value = std::strtol(text, &end, 10);
+    value = std::strtol(text, &end, 10);
 
-    if (end == text) {
-        std::abort();
+    return end != text && *end == '\0';
+}
+
+bool parse_int(const char* text, int& value) {
+    long parsed = 0;
+    if (!parse_long(text, parsed)) {
+        return false;
     }
 
-    return value;
+    value = static_cast<int>(parsed);
+    return true;
 }
 
-int parse_int(const char* text) {
-    return static_cast<int>(parse_long(text));
-}
-
-double parse_double(const char* text) {
+bool parse_double(const char* text, double& value) {
     char* end = nullptr;
-    const double value = std::strtod(text, &end);
+    value = std::strtod(text, &end);
 
-    if (end == text) {
-        std::abort();
+    return end != text && *end == '\0';
+}
+
+bool parse_frame(char line[], int line_number, Frame& frame) {
+    char* fields[EXPECTED_FIELD_COUNT + 1] = {};
+    const int field_count = split_line(line, fields, EXPECTED_FIELD_COUNT + 1);
+
+    if (field_count != EXPECTED_FIELD_COUNT) {
+        std::cerr << "error: invalid frame at line " << line_number << ": expected 7 fields\n";
+        return false;
     }
 
-    return value;
+    if (!parse_long(fields[0], frame.timestamp_ms) ||
+        !parse_int(fields[1], frame.seq) ||
+        !parse_double(fields[2], frame.voltage_v) ||
+        !parse_double(fields[3], frame.current_a) ||
+        !parse_double(fields[4], frame.temperature_c) ||
+        !parse_int(fields[5], frame.gps_fix) ||
+        !parse_int(fields[6], frame.satellites)) {
+        std::cerr << "error: invalid frame at line " << line_number << ": invalid numeric value\n";
+        return false;
+    }
+
+    if (frame.voltage_v <= 0.0) {
+        std::cerr << "error: invalid frame at line " << line_number << ": voltage must be positive\n";
+        return false;
+    }
+
+    if (frame.temperature_c < -40.0 || frame.temperature_c > 120.0) {
+        std::cerr << "error: invalid frame at line " << line_number << ": temperature out of range\n";
+        return false;
+    }
+
+    if (frame.gps_fix != 0 && frame.gps_fix != 1) {
+        std::cerr << "error: invalid frame at line " << line_number << ": gps_fix must be 0 or 1\n";
+        return false;
+    }
+
+    if (frame.satellites < 0) {
+        std::cerr << "error: invalid frame at line " << line_number << ": satellites must be non-negative\n";
+        return false;
+    }
+
+    return true;
 }
 
-Frame parse_frame(char line[]) {
-    char* fields[EXPECTED_FIELD_COUNT] = {};
-    const int field_count = split_line(line, fields, EXPECTED_FIELD_COUNT);
-    (void)field_count;
+bool validate_sequence(const Frame& previous, const Frame& current, int line_number) {
+    if (current.timestamp_ms <= previous.timestamp_ms) {
+        std::cerr << "error: invalid frame at line " << line_number << ": timestamp must increase\n";
+        return false;
+    }
 
-    Frame frame{};
-    frame.timestamp_ms = parse_long(fields[0]);
-    frame.seq = parse_int(fields[1]);
-    frame.voltage_v = parse_double(fields[2]);
-    frame.current_a = parse_double(fields[3]);
-    frame.temperature_c = parse_double(fields[4]);
-    frame.gps_fix = parse_int(fields[5]);
-    frame.satellites = parse_int(fields[6]);
-    return frame;
+    if (current.seq != previous.seq + 1) {
+        std::cerr << "error: invalid frame at line " << line_number << ": seq must increase by 1\n";
+        return false;
+    }
+
+    return true;
 }
 
 double compute_frame_rate_hz(const Frame frames[], int frame_count) {
-    const long elapsed_ms = frames[frame_count - 1].timestamp_ms - frames[0].timestamp_ms;
+    if (frame_count < 2) {
+        return 0.0;
+    }
 
-    return static_cast<double>((frame_count - 1) * 1000 / elapsed_ms);
+    const long elapsed_ms = frames[frame_count - 1].timestamp_ms - frames[0].timestamp_ms;
+    if (elapsed_ms <= 0) {
+        return 0.0;
+    }
+
+    return static_cast<double>((frame_count - 1) * 1000) / static_cast<double>(elapsed_ms);
 }
 
 int read_frames(const char* path, Frame frames[], int max_frames) {
     std::ifstream input{path};
     if (!input) {
         std::cerr << "error: failed to open input file: " << path << '\n';
-        return 0;
+        return -1;
     }
 
     int frame_count = 0;
+    int line_number = 0;
     char line[MAX_LINE_LENGTH];
 
     while (input.getline(line, MAX_LINE_LENGTH)) {
+        ++line_number;
+
         if (line[0] == '\0') {
             continue;
         }
 
-        if (frame_count < max_frames) {
-            frames[frame_count] = parse_frame(line);
-            ++frame_count;
+        if (frame_count >= max_frames) {
+            std::cerr << "error: too many telemetry frames\n";
+            return -1;
         }
+
+        Frame frame{};
+        if (!parse_frame(line, line_number, frame)) {
+            return -1;
+        }
+
+        if (frame_count > 0 && !validate_sequence(frames[frame_count - 1], frame, line_number)) {
+            return -1;
+        }
+
+        frames[frame_count] = frame;
+        ++frame_count;
+    }
+
+    if (frame_count == 0) {
+        std::cerr << "error: no telemetry frames\n";
+        return -1;
     }
 
     return frame_count;
