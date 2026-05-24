@@ -1,6 +1,6 @@
 {
   // Launch configurations працюють у devcontainer і використовують GDB з image.
-  // Для ДЗ 5 потрібно буде додати окрему конфігурацію за цим прикладом.
+  // Для ДЗ 5 додано окрему конфігурацію за прикладом ДЗ 4.
   "version": "0.2.0",
   "configurations": [
     {
@@ -36,6 +36,30 @@
       "program": "${workspaceFolder}/build/debug/homework_04/ugv_odometry",
       "args": [
         "${workspaceFolder}/homework_04/data/straight.txt"
+      ],
+      "stopAtEntry": false,
+      "cwd": "${workspaceFolder}",
+      "environment": [],
+      "externalConsole": false,
+      "MIMode": "gdb",
+      "miDebuggerPath": "/usr/bin/gdb",
+      "preLaunchTask": "CMake: configure and build",
+      "setupCommands": [
+        {
+          "description": "Увімкнути pretty-printing для STL типів у GDB.",
+          "text": "-enable-pretty-printing",
+          "ignoreFailures": true
+        }
+      ]
+    },
+    {
+      // Локальний debug ДЗ 5. preLaunchTask збирає debug preset.
+      "name": "Debug homework_05: telemetry_check",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/debug/homework_05/telemetry_check",
+      "args": [
+        "${workspaceFolder}/homework_05/data/good.txt"
       ],
       "stopAtEntry": false,
       "cwd": "${workspaceFolder}",
