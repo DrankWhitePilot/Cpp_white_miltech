@@ -13,14 +13,14 @@ MissionProcessor::MissionProcessor(
 {
 }
 
-int MissionProcessor::init(const char* configFile, const char* ammoFile)
+int MissionProcessor::init(const char* configSource)
 {
     if (loader_ == nullptr)
     {
         return 1;
     }
 
-    if (loader_->load(configFile, ammoFile) != 0)
+    if (loader_->load(configSource) != 0)
     {
         return 1;
     }

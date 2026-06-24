@@ -24,7 +24,7 @@ int main()
 
     MissionProcessor mission(targets, solver, loader);
 
-    if (mission.init("homework_07/data/config.json", "homework_07/data/ammo.json") != 0)
+    if (mission.init("homework_07/data/config.json") != 0)
     {
         std::cout << "Mission init failed\n";
         delete targets;

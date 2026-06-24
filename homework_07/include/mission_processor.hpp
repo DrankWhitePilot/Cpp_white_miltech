@@ -13,7 +13,7 @@ public:
         IBallisticSolver* solver,
         IConfigLoader* loader);
 
-    int init(const char* configFile, const char* ammoFile);
+    int init(const char* configSource);
     bool hasNext() const;
     DropPoint step();
     void reset();
