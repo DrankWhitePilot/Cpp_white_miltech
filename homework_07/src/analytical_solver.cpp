@@ -187,6 +187,129 @@ Coord estimatePredictionResidual(
     return current.position - oldPrediction;
 }
 
+double solveFallTime(
+    const AmmoParams& ammo,
+    double altitude,
+    double attackSpeed)
+{
+    double m = ammo.mass;
+    double d = ammo.drag;
+    double l = ammo.lift;
+    double v0 = attackSpeed;
+    double z0 = altitude;
+
+    double a = d * G * m - 2.0 * d * d * l * v0;
+    double b = -3.0 * G * m * m + 3.0 * d * l * m * v0;
+    double c = 6.0 * m * m * z0;
+
+    if (std::fabs(a) <= EPS)
+    {
+        if (std::fabs(b) <= EPS || c / b >= 0.0)
+        {
+            return -1.0;
+        }
+
+        return std::sqrt(-c / b);
+    }
+
+    double p = -(b * b) / (3.0 * a * a);
+    double q =
+        (2.0 * b * b * b) / (27.0 * a * a * a) +
+        c / a;
+
+    if (p >= 0.0)
+    {
+        return -1.0;
+    }
+
+    double acosArg =
+        (3.0 * q / (2.0 * p)) *
+        std::sqrt(-3.0 / p);
+
+    if (acosArg < -1.0)
+    {
+        acosArg = -1.0;
+    }
+
+    if (acosArg > 1.0)
+    {
+        acosArg = 1.0;
+    }
+
+    double phi = std::acos(acosArg);
+    double bestTime = -1.0;
+
+    for (int k = 0; k < 3; ++k)
+    {
+        double t =
+            2.0 * std::sqrt(-p / 3.0) *
+                std::cos((phi + 2.0 * PI * k) / 3.0) -
+            b / (3.0 * a);
+
+        if (t > EPS &&
+            (bestTime < 0.0 || t < bestTime))
+        {
+            bestTime = t;
+        }
+    }
+
+    return bestTime;
+}
+
+double calcHorizontalDistance(
+    const AmmoParams& ammo,
+    double fallTime,
+    double attackSpeed)
+{
+    double m = ammo.mass;
+    double d = ammo.drag;
+    double l = ammo.lift;
+    double v0 = attackSpeed;
+    double t = fallTime;
+
+    double l2 = l * l;
+    double l3 = l2 * l;
+    double l4 = l2 * l2;
+    double d2 = d * d;
+    double d3 = d2 * d;
+    double d4 = d2 * d2;
+    double m2 = m * m;
+    double m3 = m2 * m;
+    double m4 = m2 * m2;
+
+    double term1 = v0 * t;
+    double term2 =
+        -(t * t * d * v0) / (2.0 * m);
+
+    double term3 =
+        (t * t * t *
+         (6.0 * d * G * l * m -
+          6.0 * d2 * (l2 - 1.0) * v0)) /
+        (36.0 * m2);
+
+    double term4 =
+        (std::pow(t, 4.0) *
+         (-6.0 * d2 * G * l *
+              (1.0 + l2 + l4) * m +
+          3.0 * d3 * l2 *
+              (1.0 + l2) * v0 +
+          6.0 * d3 * l4 *
+              (1.0 + l2) * v0)) /
+        (36.0 *
+         (1.0 + l2) *
+         (1.0 + l2) *
+         m3);
+
+    double term5 =
+        (std::pow(t, 5.0) *
+         (3.0 * d3 * G * l3 * m -
+          3.0 * d4 * l2 *
+              (1.0 + l2) * v0)) /
+        (36.0 * (1.0 + l2) * m4);
+
+    return term1 + term2 + term3 + term4 + term5;
+}
+
 double calculateD(double droneX, double droneY, double targetX, double targetY)
 {
     double dx = targetX - droneX;
