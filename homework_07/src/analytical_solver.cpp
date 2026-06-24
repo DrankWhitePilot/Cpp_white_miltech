@@ -298,6 +298,40 @@ StoppedStateEstimate estimateStoppedState(
 
     return result;
 }
+double estimateTimeStoppedToStopped(
+    double distance,
+    double attackSpeed,
+    double accelerationPath)
+{
+    if (distance <= EPS)
+    {
+        return 0.0;
+    }
+
+    double acceleration =
+        calcDroneAcceleration(attackSpeed, accelerationPath);
+
+    if (acceleration <= EPS || attackSpeed <= EPS)
+    {
+        return attackSpeed > EPS
+                   ? distance / attackSpeed
+                   : 0.0;
+    }
+
+    double fullProfileDistance =
+        2.0 * accelerationPath;
+
+    if (distance <= fullProfileDistance + EPS)
+    {
+        return 2.0 * std::sqrt(distance / acceleration);
+    }
+
+    double accelerationTime =
+        attackSpeed / acceleration;
+
+    return 2.0 * accelerationTime +
+           (distance - fullProfileDistance) / attackSpeed;
+}
 struct ObservedTargetState
 {
     Coord position;
