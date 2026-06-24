@@ -188,6 +188,78 @@ Coord calcAimPoint(
                horizontalDistance;
 }
 
+double estimateTimeToPointWithManeuver(
+    const DroneConfig& config,
+    const DroneRuntime& drone,
+    Coord point)
+{
+    double distance = length(point - drone.position);
+    double desiredDirection =
+        directionToRadians(drone.position, point, drone.direction);
+    double turnDelta =
+        std::fabs(calcTurnDeltaRadians(
+            drone.direction,
+            desiredDirection));
+
+    if (turnDelta <= config.turnThreshold + EPS)
+    {
+        return estimateTravelTimeWithCurrentSpeed(
+            distance,
+            drone.speed,
+            config.attackSpeed,
+            config.accelPath);
+    }
+
+    double acceleration =
+        calcDroneAcceleration(
+            config.attackSpeed,
+            config.accelPath);
+
+    double stopTime = 0.0;
+    Coord stoppedPosition = drone.position;
+
+    if (acceleration > EPS && drone.speed > EPS)
+    {
+        double stopDistance =
+            drone.speed * drone.speed /
+            (2.0 * acceleration);
+
+        stoppedPosition =
+            drone.position +
+            directionVector(drone.direction) * stopDistance;
+
+        stopTime = drone.speed / acceleration;
+    }
+
+    double desiredDirectionAfterStop =
+        directionToRadians(
+            stoppedPosition,
+            point,
+            drone.direction);
+
+    double turnAfterStop =
+        std::fabs(calcTurnDeltaRadians(
+            drone.direction,
+            desiredDirectionAfterStop));
+
+    double turnTime = 0.0;
+
+    if (config.angularSpeed > EPS)
+    {
+        turnTime = turnAfterStop / config.angularSpeed;
+    }
+
+    double distanceAfterStop =
+        length(point - stoppedPosition);
+
+    double travelAfterTurn =
+        estimateTravelTimeFromStopped(
+            distanceAfterStop,
+            config.attackSpeed,
+            config.accelPath);
+
+    return stopTime + turnTime + travelAfterTurn;
+}
 struct ObservedTargetState
 {
     Coord position;
