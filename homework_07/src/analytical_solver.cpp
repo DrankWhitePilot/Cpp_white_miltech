@@ -531,6 +531,145 @@ double estimateManeuverCandidateTime(
 
     return total;
 }
+ManeuverCandidate findBestManeuverCandidate(
+    const DroneConfig& config,
+    const DroneRuntime& drone,
+    Coord impactTarget,
+    double horizontalDistance)
+{
+    double radiusToImpact =
+        horizontalDistance + config.accelPath;
+
+    double angularResolution = std::max(
+        config.turnThreshold,
+        config.angularSpeed * config.simTimeStep);
+
+    if (angularResolution <= EPS)
+    {
+        angularResolution = 0.1;
+    }
+
+    int sampleCount = static_cast<int>(
+        std::ceil(TWO_PI / angularResolution));
+
+    if (sampleCount < 8)
+    {
+        sampleCount = 8;
+    }
+
+    double step =
+        TWO_PI / static_cast<double>(sampleCount);
+
+    int bestIndex = 0;
+    double bestTime = 0.0;
+    ManeuverCandidate best = {};
+
+    for (int i = 0; i < sampleCount; ++i)
+    {
+        double angle = step * static_cast<double>(i);
+        ManeuverCandidate candidate = {};
+
+        double time = estimateManeuverCandidateTime(
+            config,
+            drone,
+            impactTarget,
+            radiusToImpact,
+            angle,
+            &candidate);
+
+        if (i == 0 || time < bestTime)
+        {
+            bestIndex = i;
+            bestTime = time;
+            best = candidate;
+        }
+    }
+
+    double left =
+        step * static_cast<double>(bestIndex) - step;
+
+    double right =
+        step * static_cast<double>(bestIndex) + step;
+
+    const double golden =
+        0.5 * (std::sqrt(5.0) - 1.0);
+
+    double x1 =
+        right - golden * (right - left);
+
+    double x2 =
+        left + golden * (right - left);
+
+    double f1 = estimateManeuverCandidateTime(
+        config,
+        drone,
+        impactTarget,
+        radiusToImpact,
+        normalizeAngleTwoPi(x1),
+        nullptr);
+
+    double f2 = estimateManeuverCandidateTime(
+        config,
+        drone,
+        impactTarget,
+        radiusToImpact,
+        normalizeAngleTwoPi(x2),
+        nullptr);
+
+    for (int iteration = 0; iteration < 32; ++iteration)
+    {
+        if (f1 <= f2)
+        {
+            right = x2;
+            x2 = x1;
+            f2 = f1;
+            x1 = right - golden * (right - left);
+
+            f1 = estimateManeuverCandidateTime(
+                config,
+                drone,
+                impactTarget,
+                radiusToImpact,
+                normalizeAngleTwoPi(x1),
+                nullptr);
+        }
+        else
+        {
+            left = x1;
+            x1 = x2;
+            f1 = f2;
+            x2 = left + golden * (right - left);
+
+            f2 = estimateManeuverCandidateTime(
+                config,
+                drone,
+                impactTarget,
+                radiusToImpact,
+                normalizeAngleTwoPi(x2),
+                nullptr);
+        }
+    }
+
+    double refinedAngle =
+        normalizeAngleTwoPi(0.5 * (left + right));
+
+    ManeuverCandidate refined = {};
+
+    double refinedTime = estimateManeuverCandidateTime(
+        config,
+        drone,
+        impactTarget,
+        radiusToImpact,
+        refinedAngle,
+        &refined);
+
+    if (refinedTime < bestTime)
+    {
+        best = refined;
+    }
+
+    return best;
+}
 struct ObservedTargetState
 {
     Coord position;
