@@ -98,7 +98,10 @@ void MissionProcessor::reset()
 
 void MissionProcessor::changeSolver(IBallisticSolver* solver)
 {
-    solver_ = solver;
+    if (solver != nullptr)
+    {
+        solver_ = solver;
+    }
 }
 
 void MissionProcessor::prepareInputData()
