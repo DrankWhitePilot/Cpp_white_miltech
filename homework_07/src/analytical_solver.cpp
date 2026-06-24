@@ -670,6 +670,83 @@ ManeuverCandidate findBestManeuverCandidate(
 
     return best;
 }
+DropPlan calculateDynamicDropPlan(
+    const DroneConfig& config,
+    const DroneRuntime& drone,
+    Coord target,
+    double horizontalDistance,
+    double& timeToRelease)
+{
+    Coord toTarget = target - drone.position;
+    double distanceToTarget = length(toTarget);
+    Coord attackVector = normalize(toTarget);
+
+    Coord firePoint =
+        target - attackVector * horizontalDistance;
+
+    double desiredDirection = directionToRadians(
+        drone.position,
+        firePoint,
+        drone.direction);
+
+    double turnDelta = std::fabs(
+        calcTurnDeltaRadians(
+            drone.direction,
+            desiredDirection));
+
+    double acceleration = calcDroneAcceleration(
+        config.attackSpeed,
+        config.accelPath);
+
+    double remainingAccelerationDistance = 0.0;
+
+    if (turnDelta > config.turnThreshold + EPS)
+    {
+        remainingAccelerationDistance = config.accelPath;
+    }
+    else if (acceleration > EPS)
+    {
+        double currentSpeed = std::clamp(
+            drone.speed,
+            0.0,
+            config.attackSpeed);
+
+        remainingAccelerationDistance =
+            (config.attackSpeed * config.attackSpeed -
+             currentSpeed * currentSpeed) /
+            (2.0 * acceleration);
+    }
+
+    DropPlan plan = {};
+
+    if (horizontalDistance + remainingAccelerationDistance <=
+        distanceToTarget + EPS)
+    {
+        plan.needManeuver = false;
+        plan.maneuverPoint = drone.position;
+        plan.firePoint = firePoint;
+
+        timeToRelease = estimateTimeToPointWithManeuver(
+            config,
+            drone,
+            firePoint);
+
+        return plan;
+    }
+
+    ManeuverCandidate candidate = findBestManeuverCandidate(
+        config,
+        drone,
+        target,
+        horizontalDistance);
+
+    plan.needManeuver = true;
+    plan.maneuverPoint = candidate.point;
+    plan.firePoint = candidate.firePoint;
+    timeToRelease = candidate.timeToRelease;
+
+    return plan;
+}
 struct ObservedTargetState
 {
     Coord position;
