@@ -1300,6 +1300,33 @@ bool calculateAttackPlan(
 }
 
 bool AnalyticalSolver::solve(
+    const DroneConfig& config,
+    const AmmoParams& ammo,
+    const Coord* targetPath,
+    int timeSteps,
+    int targetIndex,
+    const DroneRuntime& drone,
+    double currentTime,
+    AttackPlan& result)
+{
+    if (targetPath == nullptr || timeSteps <= 0)
+    {
+        return false;
+    }
+
+    result = buildAttackPlanFromRuntime(
+        config,
+        ammo,
+        targetPath,
+        timeSteps,
+        targetIndex,
+        drone,
+        currentTime);
+
+    return result.fallTime > EPS;
+}
+
+bool AnalyticalSolver::solve(
     InputData& data,
     double droneX,
     double droneY,
