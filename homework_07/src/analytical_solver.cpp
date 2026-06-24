@@ -402,6 +402,135 @@ double estimateTimeMovingToStopped(
            cruiseDistance / attackSpeed +
            attackSpeed / acceleration;
 }
+struct ManeuverCandidate
+{
+    Coord point;
+    Coord firePoint;
+    double attackDirection;
+    double timeToRelease;
+};
+
+double estimateManeuverCandidateTime(
+    const DroneConfig& config,
+    const DroneRuntime& drone,
+    Coord impactTarget,
+    double radiusToImpact,
+    double attackAngle,
+    ManeuverCandidate* candidate)
+{
+    Coord attackVector = {
+        std::cos(attackAngle),
+        std::sin(attackAngle)
+    };
+
+    Coord maneuverPoint =
+        impactTarget - attackVector * radiusToImpact;
+
+    Coord firePoint =
+        maneuverPoint + attackVector * config.accelPath;
+
+    double acceleration = calcDroneAcceleration(
+        config.attackSpeed,
+        config.accelPath);
+
+    double attackRunTime =
+        acceleration > EPS
+            ? config.attackSpeed / acceleration
+            : 0.0;
+
+    double arrivalTime = 0.0;
+    double arrivalDirection = drone.direction;
+
+    double distanceToManeuver =
+        length(maneuverPoint - drone.position);
+
+    double directionToManeuver = directionToRadians(
+        drone.position,
+        maneuverPoint,
+        drone.direction);
+
+    double initialTurn = std::fabs(
+        calcTurnDeltaRadians(
+            drone.direction,
+            directionToManeuver));
+
+    double stoppingDistance =
+        acceleration > EPS
+            ? drone.speed * drone.speed /
+                  (2.0 * acceleration)
+            : 0.0;
+
+    if (initialTurn <= config.turnThreshold + EPS &&
+        distanceToManeuver + EPS >= stoppingDistance)
+    {
+        double movingTime = estimateTimeMovingToStopped(
+            distanceToManeuver,
+            drone.speed,
+            config.attackSpeed,
+            config.accelPath);
+
+        if (movingTime >= 0.0)
+        {
+            arrivalTime = movingTime;
+            arrivalDirection = directionToManeuver;
+        }
+    }
+
+    if (arrivalTime <= EPS && distanceToManeuver > EPS)
+    {
+        StoppedStateEstimate stopped =
+            estimateStoppedState(config, drone);
+
+        double directionFromStop = directionToRadians(
+            stopped.position,
+            maneuverPoint,
+            stopped.direction);
+
+        double turnToManeuver = std::fabs(
+            calcTurnDeltaRadians(
+                stopped.direction,
+                directionFromStop));
+
+        double turnTime =
+            config.angularSpeed > EPS
+                ? turnToManeuver / config.angularSpeed
+                : 0.0;
+
+        arrivalTime =
+            stopped.time +
+            turnTime +
+            estimateTimeStoppedToStopped(
+                length(maneuverPoint - stopped.position),
+                config.attackSpeed,
+                config.accelPath);
+
+        arrivalDirection = directionFromStop;
+    }
+
+    double finalTurn = std::fabs(
+        calcTurnDeltaRadians(
+            arrivalDirection,
+            attackAngle));
+
+    double finalTurnTime =
+        config.angularSpeed > EPS
+            ? finalTurn / config.angularSpeed
+            : 0.0;
+
+    double total =
+        arrivalTime + finalTurnTime + attackRunTime;
+
+    if (candidate != nullptr)
+    {
+        candidate->point = maneuverPoint;
+        candidate->firePoint = firePoint;
+        candidate->attackDirection =
+            normalizeAngleTwoPi(attackAngle);
+        candidate->timeToRelease = total;
+    }
+
+    return total;
+}
 struct ObservedTargetState
 {
     Coord position;
