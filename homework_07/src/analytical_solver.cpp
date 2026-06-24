@@ -1050,6 +1050,113 @@ double calcHorizontalDistance(
     return term1 + term2 + term3 + term4 + term5;
 }
 
+AttackPlan buildAttackPlanFromRuntime(
+    const DroneConfig& config,
+    const AmmoParams& ammo,
+    const Coord* targetPath,
+    int timeSteps,
+    int targetIndex,
+    const DroneRuntime& drone,
+    double currentTime)
+{
+    AttackPlan plan = {};
+
+    plan.targetIndex = targetIndex;
+
+    plan.fallTime = solveFallTime(
+        ammo,
+        config.altitude,
+        config.attackSpeed);
+
+    plan.horizontalDistance = calcHorizontalDistance(
+        ammo,
+        plan.fallTime,
+        config.attackSpeed);
+
+    ObservedTargetState observed = observeTargetFromPast(
+        targetPath,
+        timeSteps,
+        currentTime,
+        config.arrayTimeStep);
+
+    plan.targetNow = observed.position;
+    plan.targetVelocity = observed.velocity;
+
+    double provisionalReleaseTime = 0.0;
+
+    (void)calculateDynamicDropPlan(
+        config,
+        drone,
+        plan.targetNow,
+        plan.horizontalDistance,
+        provisionalReleaseTime);
+
+    plan.totalTime =
+        provisionalReleaseTime + plan.fallTime;
+
+    Coord predictionResidual = estimatePredictionResidual(
+        targetPath,
+        timeSteps,
+        currentTime,
+        config.arrayTimeStep,
+        plan.fallTime);
+
+    plan.predictionUncertainty =
+        length(predictionResidual);
+
+    plan.predictedTarget = predictObservedTargetClamped(
+        observed,
+        plan.totalTime,
+        plan.fallTime);
+
+    plan.impactTarget =
+        predictObservedTarget(
+            observed,
+            plan.fallTime) +
+        predictionResidual;
+
+    plan.dropPlan = calculateDynamicDropPlan(
+        config,
+        drone,
+        plan.impactTarget,
+        plan.horizontalDistance,
+        plan.timeToDrop);
+
+    if (plan.dropPlan.needManeuver)
+    {
+        ManeuverCandidate candidate =
+            findBestManeuverCandidate(
+                config,
+                drone,
+                plan.predictedTarget,
+                plan.horizontalDistance);
+
+        double refinedTotalTime =
+            candidate.timeToRelease + plan.fallTime;
+
+        plan.predictedTarget =
+            predictObservedTargetClamped(
+                observed,
+                refinedTotalTime,
+                plan.fallTime);
+
+        candidate = findBestManeuverCandidate(
+            config,
+            drone,
+            plan.predictedTarget,
+            plan.horizontalDistance);
+
+        plan.dropPlan.needManeuver = true;
+        plan.dropPlan.maneuverPoint = candidate.point;
+        plan.dropPlan.firePoint = candidate.firePoint;
+        plan.timeToDrop = candidate.timeToRelease;
+    }
+
+    plan.totalTime =
+        plan.timeToDrop + plan.fallTime;
+
+    return plan;
+}
 double calculateD(double droneX, double droneY, double targetX, double targetY)
 {
     double dx = targetX - droneX;
