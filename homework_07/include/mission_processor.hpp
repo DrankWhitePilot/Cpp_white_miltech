@@ -21,6 +21,10 @@ public:
 
 private:
     void prepareInputData();
+    bool buildPlanForTarget(
+        int targetIndex,
+        double currentTime,
+        AttackPlan& plan) const;
 
     ITargetProvider* targets_;
     IBallisticSolver* solver_;

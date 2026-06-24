@@ -13,6 +13,33 @@ MissionProcessor::MissionProcessor(
 {
 }
 
+bool MissionProcessor::buildPlanForTarget(
+    int targetIndex,
+    double currentTime,
+    AttackPlan& plan) const
+{
+    if (targets_ == nullptr ||
+        solver_ == nullptr ||
+        loader_ == nullptr ||
+        targetIndex < 0 ||
+        targetIndex >= targets_->getTargetCount())
+    {
+        return false;
+    }
+
+    Coord* targetPath = targets_->getTarget(targetIndex);
+
+    return solver_->solve(
+        loader_->getConfig(),
+        loader_->getAmmoParams(),
+        targetPath,
+        targets_->getTimeSteps(),
+        targetIndex,
+        drone_,
+        currentTime,
+        plan);
+}
+
 int MissionProcessor::init()
 {
     if (targets_ == nullptr || solver_ == nullptr || loader_ == nullptr)
