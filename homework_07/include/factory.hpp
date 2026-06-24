@@ -1,6 +1,8 @@
 #pragma once
 
-#include "interfaces.hpp"
+class IBallisticSolver;
+class ITargetProvider;
+class IConfigLoader;
 
 enum class SolverType
 {

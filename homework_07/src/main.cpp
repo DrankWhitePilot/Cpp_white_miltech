@@ -1,5 +1,6 @@
 #include <iostream>
 
+#include "interfaces.hpp"
 #include "factory.hpp"
 #include "mission_processor.hpp"
 

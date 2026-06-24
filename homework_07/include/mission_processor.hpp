@@ -1,6 +1,8 @@
 #pragma once
 
-#include "interfaces.hpp"
+class ITargetProvider;
+class IBallisticSolver;
+class IConfigLoader;
 #include "types.hpp"
 
 class MissionProcessor
