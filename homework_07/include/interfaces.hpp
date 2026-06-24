@@ -35,7 +35,7 @@ public:
 class IConfigLoader
 {
 public:
-    virtual int load(const char* configFile) = 0;
+    virtual int load(const char* configFile, const char* ammoFile) = 0;
     virtual const DroneConfig& getConfig() const = 0;
     virtual const AmmoParams& getAmmoParams() const = 0;
     virtual ~IConfigLoader() = default;

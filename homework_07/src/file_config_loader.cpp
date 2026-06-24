@@ -3,7 +3,6 @@
 #include <cstring>
 #include <fstream>
 #include <iostream>
-#include <string>
 
 #include "json.hpp"
 
@@ -47,7 +46,7 @@ int loadAmmo(AmmoParams*& ammo, int& count, const char* filename)
 }
 }
 
-int FileConfigLoader::load(const char* configFile)
+int FileConfigLoader::load(const char* configFile, const char* ammoFile)
 {
     std::ifstream fin(configFile);
     if (!fin.is_open()) {
@@ -73,18 +72,10 @@ int FileConfigLoader::load(const char* configFile)
     config_.hitRadius = j["simulation"]["hitRadius"];
     config_.arrayTimeStep = j["targetArrayTimeStep"];
 
-    std::string ammoFile = configFile;
-    const std::size_t separator = ammoFile.find_last_of("/\\\\");
-
-    if (separator == std::string::npos)
-        ammoFile = "ammo.json";
-    else
-        ammoFile = ammoFile.substr(0, separator + 1) + "ammo.json";
-
     AmmoParams* ammo = nullptr;
     int ammoCount = 0;
 
-    if (loadAmmo(ammo, ammoCount, ammoFile.c_str()) != 0)
+    if (loadAmmo(ammo, ammoCount, ammoFile) != 0)
     {
         delete[] ammo;
         return 1;

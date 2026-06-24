@@ -5,7 +5,7 @@
 class FileConfigLoader : public IConfigLoader
 {
 public:
-    int load(const char* configFile) override;
+    int load(const char* configFile, const char* ammoFile) override;
     const DroneConfig& getConfig() const override;
     const AmmoParams& getAmmoParams() const override;
 
