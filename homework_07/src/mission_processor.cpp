@@ -32,6 +32,18 @@ int MissionProcessor::init()
 
     prepareInputData();
     reset();
+
+    const DroneConfig& config = loader_->getConfig();
+    drone_ = {
+        config.startPos,
+        config.initialDir,
+        0.0,
+        DroneState::STOPPED
+    };
+    mission_ = {};
+    currentTargetIndex_ = -1;
+    finished_ = false;
+
     initialized_ = true;
 
     return 0;

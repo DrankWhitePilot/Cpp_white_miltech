@@ -25,6 +25,11 @@ private:
     ITargetProvider* targets_;
     IBallisticSolver* solver_;
     IConfigLoader* loader_;
+
+    DroneRuntime drone_{};
+    MissionRuntime mission_{};
+    int currentTargetIndex_ = -1;
+    bool finished_ = false;
     InputData data_{};
     int currentIdx_ = 0;
     bool initialized_ = false;
