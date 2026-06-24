@@ -15,7 +15,12 @@ MissionProcessor::MissionProcessor(
 
 int MissionProcessor::init()
 {
-    if (loader_ == nullptr)
+    if (targets_ == nullptr || loader_ == nullptr)
+    {
+        return 1;
+    }
+
+    if (targets_->load() != 0)
     {
         return 1;
     }

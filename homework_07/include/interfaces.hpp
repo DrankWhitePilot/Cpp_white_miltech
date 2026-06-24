@@ -5,7 +5,7 @@
 class ITargetProvider
 {
 public:
-    virtual int load(const char* filename) = 0;
+    virtual int load() = 0;
     virtual int getTargetCount() const = 0;
     virtual int getTimeSteps() const = 0;
     virtual Coord* getTarget(int index) = 0;

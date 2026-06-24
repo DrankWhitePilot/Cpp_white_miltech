@@ -1,20 +1,22 @@
 #pragma once
 
+#include <string>
 #include "interfaces.hpp"
 
 class JsonTargetProvider : public ITargetProvider
 {
 public:
-    JsonTargetProvider() = default;
+    explicit JsonTargetProvider(const char* source);
     ~JsonTargetProvider() override;
 
-    int load(const char* filename) override;
+    int load() override;
     int getTargetCount() const override;
     int getTimeSteps() const override;
     Coord* getTarget(int index) override;
     Coord** getTargets() override;
 
 private:
+    std::string source_;
     void clear();
 
     Coord** targets_ = nullptr;

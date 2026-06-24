@@ -7,6 +7,11 @@
 
 using json = nlohmann::json;
 
+JsonTargetProvider::JsonTargetProvider(const char* source)
+    : source_(source != nullptr ? source : "")
+{
+}
+
 JsonTargetProvider::~JsonTargetProvider()
 {
     clear();
@@ -29,11 +34,11 @@ void JsonTargetProvider::clear()
     timeSteps_ = 0;
 }
 
-int JsonTargetProvider::load(const char* filename)
+int JsonTargetProvider::load()
 {
     clear();
 
-    std::ifstream fin(filename);
+    std::ifstream fin(source_);
     if (!fin.is_open())
     {
         std::cout << "NO TARGET FILE" << std::endl;

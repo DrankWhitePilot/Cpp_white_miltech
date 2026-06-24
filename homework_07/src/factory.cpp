@@ -17,25 +17,12 @@ IBallisticSolver* createSolver(SolverType type)
 
 ITargetProvider* createProvider(ProviderType type, const char* param)
 {
-    ITargetProvider* provider = nullptr;
-
     switch (type)
     {
     case ProviderType::JSON:
-        provider = new JsonTargetProvider();
-        break;
+        return new JsonTargetProvider(param);
     }
-
-    if (provider != nullptr && param != nullptr)
-    {
-        if (provider->load(param) != 0)
-        {
-            delete provider;
-            return nullptr;
-        }
-    }
-
-    return provider;
+    return nullptr;
 }
 
 IConfigLoader* createLoader(LoaderType type, const char* configSource, const char* ammoSource)
