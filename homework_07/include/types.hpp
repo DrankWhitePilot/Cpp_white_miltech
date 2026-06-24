@@ -94,3 +94,52 @@ struct DropPoint
     double totalTime;
     bool needManeuver;
 };
+
+enum class AttackPhase
+{
+    PURSUIT = 0,
+    TO_MANEUVER = 1,
+    ALIGN_ATTACK = 2,
+    ATTACK_RUN = 3
+};
+
+struct DroneRuntime
+{
+    Coord position;
+    double direction;
+    double speed;
+    DroneState state;
+};
+
+struct DropPlan
+{
+    bool needManeuver;
+    Coord maneuverPoint;
+    Coord firePoint;
+};
+
+struct AttackPlan
+{
+    int targetIndex;
+    Coord targetNow;
+    Coord targetVelocity;
+    Coord predictedTarget;
+    Coord impactTarget;
+    double predictionUncertainty;
+    DropPlan dropPlan;
+    double fallTime;
+    double horizontalDistance;
+    double timeToDrop;
+    double totalTime;
+};
+
+struct MissionRuntime
+{
+    int targetIndex;
+    AttackPhase phase;
+    Coord maneuverPoint;
+    Coord firePoint;
+    Coord impactTarget;
+    double attackDirection;
+    double horizontalDistance;
+};
