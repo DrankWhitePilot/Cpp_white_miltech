@@ -4,8 +4,189 @@
 
 const double G = 9.81;
 const double PI = acos(-1.0);
+const double TWO_PI = 2.0 * PI;
 
 const double EPS = 1e-9;
+
+double length(Coord value)
+{
+    return std::sqrt(value.x * value.x + value.y * value.y);
+}
+
+Coord normalize(Coord value)
+{
+    double valueLength = length(value);
+
+    if (valueLength <= EPS)
+    {
+        return {1.0, 0.0};
+    }
+
+    return value / valueLength;
+}
+
+double normalizeAngleTwoPi(double angleRadians)
+{
+    double result = std::fmod(angleRadians, TWO_PI);
+
+    if (result < 0.0)
+    {
+        result += TWO_PI;
+    }
+
+    return result;
+}
+
+double calcTurnDeltaRadians(
+    double currentDirection,
+    double desiredDirection)
+{
+    double delta =
+        normalizeAngleTwoPi(desiredDirection) -
+        normalizeAngleTwoPi(currentDirection);
+
+    while (delta > PI)
+    {
+        delta -= TWO_PI;
+    }
+
+    while (delta <= -PI)
+    {
+        delta += TWO_PI;
+    }
+
+    return delta;
+}
+
+double directionToRadians(
+    Coord from,
+    Coord to,
+    double fallbackDirection)
+{
+    if (from == to)
+    {
+        return normalizeAngleTwoPi(fallbackDirection);
+    }
+
+    return normalizeAngleTwoPi(
+        std::atan2(to.y - from.y, to.x - from.x));
+}
+
+double calcDroneAcceleration(
+    double attackSpeed,
+    double accelerationPath)
+{
+    if (attackSpeed <= EPS || accelerationPath <= EPS)
+    {
+        return 0.0;
+    }
+
+    return attackSpeed * attackSpeed /
+           (2.0 * accelerationPath);
+}
+
+double estimateTravelTimeFromStopped(
+    double distance,
+    double attackSpeed,
+    double accelerationPath)
+{
+    if (distance <= EPS || attackSpeed <= EPS)
+    {
+        return 0.0;
+    }
+
+    double acceleration =
+        calcDroneAcceleration(attackSpeed, accelerationPath);
+
+    if (acceleration <= EPS || accelerationPath <= EPS)
+    {
+        return distance / attackSpeed;
+    }
+
+    if (distance <= accelerationPath + EPS)
+    {
+        return std::sqrt(2.0 * distance / acceleration);
+    }
+
+    double accelerationTime = attackSpeed / acceleration;
+
+    return accelerationTime +
+           (distance - accelerationPath) / attackSpeed;
+}
+
+double estimateTravelTimeWithCurrentSpeed(
+    double distance,
+    double currentSpeed,
+    double attackSpeed,
+    double accelerationPath)
+{
+    if (distance <= EPS || attackSpeed <= EPS)
+    {
+        return 0.0;
+    }
+
+    if (currentSpeed < 0.0)
+    {
+        currentSpeed = 0.0;
+    }
+
+    if (currentSpeed > attackSpeed)
+    {
+        currentSpeed = attackSpeed;
+    }
+
+    double acceleration =
+        calcDroneAcceleration(attackSpeed, accelerationPath);
+
+    if (acceleration <= EPS || accelerationPath <= EPS)
+    {
+        return distance / attackSpeed;
+    }
+
+    if (currentSpeed >= attackSpeed - EPS)
+    {
+        return distance / attackSpeed;
+    }
+
+    double remainingAccelerationDistance =
+        (attackSpeed * attackSpeed -
+         currentSpeed * currentSpeed) /
+        (2.0 * acceleration);
+
+    double remainingAccelerationTime =
+        (attackSpeed - currentSpeed) / acceleration;
+
+    if (distance <= remainingAccelerationDistance + EPS)
+    {
+        return (-currentSpeed +
+                std::sqrt(
+                    currentSpeed * currentSpeed +
+                    2.0 * acceleration * distance)) /
+               acceleration;
+    }
+
+    return remainingAccelerationTime +
+           (distance - remainingAccelerationDistance) /
+               attackSpeed;
+}
+
+Coord directionVector(double directionRadians)
+{
+    return {
+        std::cos(directionRadians),
+        std::sin(directionRadians)
+    };
+}
+
+Coord calcAimPoint(
+    Coord position,
+    double directionRadians,
+    double horizontalDistance)
+{
+    return position +
+           directionVector(directionRadians) *
+               horizontalDistance;
+}
 
 struct ObservedTargetState
 {
