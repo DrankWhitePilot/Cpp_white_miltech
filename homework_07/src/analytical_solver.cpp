@@ -5,6 +5,188 @@
 const double G = 9.81;
 const double PI = acos(-1.0);
 
+const double EPS = 1e-9;
+
+struct ObservedTargetState
+{
+    Coord position;
+    Coord velocity;
+    Coord acceleration;
+};
+
+ObservedTargetState observeTargetFromPast(
+    const Coord* targetPath,
+    int timeSteps,
+    double time,
+    double arrayTimeStep)
+{
+    ObservedTargetState state = {
+        {0.0, 0.0},
+        {0.0, 0.0},
+        {0.0, 0.0}
+    };
+
+    if (targetPath == nullptr || timeSteps <= 0 || arrayTimeStep <= EPS)
+    {
+        return state;
+    }
+
+    if (time < 0.0)
+    {
+        time = 0.0;
+    }
+
+    long long absoluteIndex =
+        static_cast<long long>(std::floor(time / arrayTimeStep + EPS));
+
+    int latestIndex = static_cast<int>(absoluteIndex % timeSteps);
+    if (latestIndex < 0)
+    {
+        latestIndex += timeSteps;
+    }
+
+    state.position = targetPath[latestIndex];
+
+    if (absoluteIndex >= 1)
+    {
+        int previousIndex = latestIndex - 1;
+        if (previousIndex < 0)
+        {
+            previousIndex += timeSteps;
+        }
+
+        state.velocity =
+            (targetPath[latestIndex] - targetPath[previousIndex]) /
+            arrayTimeStep;
+
+        if (absoluteIndex >= 2)
+        {
+            int beforePreviousIndex = previousIndex - 1;
+            if (beforePreviousIndex < 0)
+            {
+                beforePreviousIndex += timeSteps;
+            }
+
+            Coord pk = targetPath[latestIndex];
+            Coord pk1 = targetPath[previousIndex];
+            Coord pk2 = targetPath[beforePreviousIndex];
+
+            state.velocity =
+                (pk * 3.0 - pk1 * 4.0 + pk2) /
+                (2.0 * arrayTimeStep);
+
+            state.acceleration =
+                (pk - pk1 * 2.0 + pk2) /
+                (arrayTimeStep * arrayTimeStep);
+        }
+    }
+
+    double latestSampleTime = absoluteIndex * arrayTimeStep;
+    double elapsed = time - latestSampleTime;
+
+    if (elapsed < 0.0)
+    {
+        elapsed = 0.0;
+    }
+
+    if (elapsed > arrayTimeStep)
+    {
+        elapsed = arrayTimeStep;
+    }
+
+    state.position =
+        state.position +
+        state.velocity * elapsed +
+        state.acceleration * (0.5 * elapsed * elapsed);
+
+    state.velocity =
+        state.velocity + state.acceleration * elapsed;
+
+    return state;
+}
+
+Coord predictObservedTarget(
+    const ObservedTargetState& state,
+    double horizon)
+{
+    if (horizon < 0.0)
+    {
+        horizon = 0.0;
+    }
+
+    return state.position +
+           state.velocity * horizon +
+           state.acceleration * (0.5 * horizon * horizon);
+}
+
+Coord predictObservedTargetClamped(
+    const ObservedTargetState& state,
+    double horizon,
+    double accelerationHorizon)
+{
+    if (horizon < 0.0)
+    {
+        horizon = 0.0;
+    }
+
+    if (accelerationHorizon < 0.0)
+    {
+        accelerationHorizon = 0.0;
+    }
+
+    double curvedTime = horizon;
+    if (curvedTime > accelerationHorizon)
+    {
+        curvedTime = accelerationHorizon;
+    }
+
+    Coord position = predictObservedTarget(state, curvedTime);
+
+    if (horizon <= curvedTime + EPS)
+    {
+        return position;
+    }
+
+    Coord velocityAtClamp =
+        state.velocity + state.acceleration * curvedTime;
+
+    return position +
+           velocityAtClamp * (horizon - curvedTime);
+}
+
+Coord estimatePredictionResidual(
+    const Coord* targetPath,
+    int timeSteps,
+    double currentTime,
+    double arrayTimeStep,
+    double horizon)
+{
+    if (horizon <= EPS ||
+        currentTime <= horizon + 2.0 * arrayTimeStep)
+    {
+        return {0.0, 0.0};
+    }
+
+    double validationTime = currentTime - horizon;
+
+    ObservedTargetState past = observeTargetFromPast(
+        targetPath,
+        timeSteps,
+        validationTime,
+        arrayTimeStep);
+
+    Coord oldPrediction =
+        predictObservedTarget(past, horizon);
+
+    ObservedTargetState current = observeTargetFromPast(
+        targetPath,
+        timeSteps,
+        currentTime,
+        arrayTimeStep);
+
+    return current.position - oldPrediction;
+}
+
 double calculateD(double droneX, double droneY, double targetX, double targetY)
 {
     double dx = targetX - droneX;
