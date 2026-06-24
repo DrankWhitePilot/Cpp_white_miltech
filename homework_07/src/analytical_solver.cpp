@@ -1,3 +1,4 @@
+#include <algorithm>
 #include "analytical_solver.hpp"
 
 #include <cmath>
@@ -331,6 +332,75 @@ double estimateTimeStoppedToStopped(
 
     return 2.0 * accelerationTime +
            (distance - fullProfileDistance) / attackSpeed;
+}
+double estimateTimeMovingToStopped(
+    double distance,
+    double currentSpeed,
+    double attackSpeed,
+    double accelerationPath)
+{
+    if (distance <= EPS)
+    {
+        return 0.0;
+    }
+
+    double acceleration =
+        calcDroneAcceleration(attackSpeed, accelerationPath);
+
+    if (acceleration <= EPS || attackSpeed <= EPS)
+    {
+        return attackSpeed > EPS
+                   ? distance / attackSpeed
+                   : 0.0;
+    }
+
+    currentSpeed =
+        std::clamp(currentSpeed, 0.0, attackSpeed);
+
+    double stoppingDistance =
+        currentSpeed * currentSpeed /
+        (2.0 * acceleration);
+
+    if (distance + EPS < stoppingDistance)
+    {
+        return -1.0;
+    }
+
+    double peakSpeedSquared =
+        acceleration * distance +
+        0.5 * currentSpeed * currentSpeed;
+
+    double peakSpeed =
+        std::sqrt(std::max(0.0, peakSpeedSquared));
+
+    if (peakSpeed <= attackSpeed + EPS)
+    {
+        return (peakSpeed - currentSpeed) / acceleration +
+               peakSpeed / acceleration;
+    }
+
+    double accelerationDistance =
+        (attackSpeed * attackSpeed -
+         currentSpeed * currentSpeed) /
+        (2.0 * acceleration);
+
+    double decelerationDistance =
+        attackSpeed * attackSpeed /
+        (2.0 * acceleration);
+
+    double cruiseDistance =
+        distance -
+        accelerationDistance -
+        decelerationDistance;
+
+    if (cruiseDistance < 0.0)
+    {
+        cruiseDistance = 0.0;
+    }
+
+    return (attackSpeed - currentSpeed) / acceleration +
+           cruiseDistance / attackSpeed +
+           attackSpeed / acceleration;
 }
 struct ObservedTargetState
 {
