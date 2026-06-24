@@ -21,4 +21,4 @@ enum class LoaderType
 
 IBallisticSolver* createSolver(SolverType type);
 ITargetProvider* createProvider(ProviderType type, const char* param);
-IConfigLoader* createLoader(LoaderType type);
+IConfigLoader* createLoader(LoaderType type, const char* configSource, const char* ammoSource);

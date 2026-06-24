@@ -11,20 +11,11 @@ int main()
         "homework_07/data/targets.json");
 
     IBallisticSolver* solver = createSolver(SolverType::ANALYTICAL);
-    IConfigLoader* loader = createLoader(LoaderType::FILE);
+    IConfigLoader* loader = createLoader(LoaderType::FILE, "homework_07/data/config.json", "homework_07/data/ammo.json");
 
     if (targets == nullptr || solver == nullptr || loader == nullptr)
     {
         std::cout << "Failed to create mission components\n";
-        delete targets;
-        delete solver;
-        delete loader;
-        return 1;
-    }
-
-    if (loader->load("homework_07/data/config.json", "homework_07/data/ammo.json") != 0)
-    {
-        std::cout << "Config load failed\n";
         delete targets;
         delete solver;
         delete loader;

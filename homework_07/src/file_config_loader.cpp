@@ -46,9 +46,15 @@ int loadAmmo(AmmoParams*& ammo, int& count, const char* filename)
 }
 }
 
-int FileConfigLoader::load(const char* configFile, const char* ammoFile)
+FileConfigLoader::FileConfigLoader(const char* configFile, const char* ammoFile)
+    : configFile_(configFile != nullptr ? configFile : ""),
+      ammoFile_(ammoFile != nullptr ? ammoFile : "")
 {
-    std::ifstream fin(configFile);
+}
+
+int FileConfigLoader::load()
+{
+    std::ifstream fin(configFile_);
     if (!fin.is_open()) {
         std::cout << "NO FILE" << std::endl;
         return 1;
@@ -75,7 +81,7 @@ int FileConfigLoader::load(const char* configFile, const char* ammoFile)
     AmmoParams* ammo = nullptr;
     int ammoCount = 0;
 
-    if (loadAmmo(ammo, ammoCount, ammoFile) != 0)
+    if (loadAmmo(ammo, ammoCount, ammoFile_.c_str()) != 0)
     {
         delete[] ammo;
         return 1;

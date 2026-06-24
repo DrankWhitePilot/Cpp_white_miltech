@@ -38,12 +38,12 @@ ITargetProvider* createProvider(ProviderType type, const char* param)
     return provider;
 }
 
-IConfigLoader* createLoader(LoaderType type)
+IConfigLoader* createLoader(LoaderType type, const char* configSource, const char* ammoSource)
 {
     switch (type)
     {
     case LoaderType::FILE:
-        return new FileConfigLoader();
+        return new FileConfigLoader(configSource, ammoSource);
     }
 
     return nullptr;
