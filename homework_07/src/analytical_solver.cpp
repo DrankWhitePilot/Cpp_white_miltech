@@ -260,6 +260,44 @@ double estimateTimeToPointWithManeuver(
 
     return stopTime + turnTime + travelAfterTurn;
 }
+struct StoppedStateEstimate
+{
+    Coord position;
+    double direction;
+    double time;
+};
+
+StoppedStateEstimate estimateStoppedState(
+    const DroneConfig& config,
+    const DroneRuntime& drone)
+{
+    StoppedStateEstimate result = {
+        drone.position,
+        drone.direction,
+        0.0
+    };
+
+    double acceleration = calcDroneAcceleration(
+        config.attackSpeed,
+        config.accelPath);
+
+    if (drone.speed <= EPS || acceleration <= EPS)
+    {
+        return result;
+    }
+
+    double stopDistance =
+        drone.speed * drone.speed /
+        (2.0 * acceleration);
+
+    result.position =
+        drone.position +
+        directionVector(drone.direction) * stopDistance;
+
+    result.time = drone.speed / acceleration;
+
+    return result;
+}
 struct ObservedTargetState
 {
     Coord position;
