@@ -25,11 +25,6 @@ int MissionProcessor::init()
         return 1;
     }
 
-    if (loader_->load() != 0)
-    {
-        return 1;
-    }
-
     prepareInputData();
     reset();
     initialized_ = true;
