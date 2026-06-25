@@ -1,46 +1,43 @@
 #include "drone_state.hpp"
 
+#include <utility>
+
+#include "model_math.hpp"
+
 namespace
 {
-template <typename CurrentState>
-std::unique_ptr<IDroneState> transitionFrom(DroneContext& ctx, int currentCode)
+bool speedIncreased(const DroneContext& ctx)
 {
-    (void)sizeof(CurrentState);
-    if (ctx.requestedState == currentCode)
-    {
-        ctx.drone.state = currentCode;
-        return nullptr;
-    }
-    if (ctx.requestedState == state_code::STOPPED)
-    {
-        return std::make_unique<StateStopped>();
-    }
-    if (ctx.requestedState == state_code::ACCELERATING)
-    {
-        return std::make_unique<StateAccelerating>();
-    }
-    if (ctx.requestedState == state_code::DECELERATING)
-    {
-        return std::make_unique<StateDecelerating>();
-    }
-    if (ctx.requestedState == state_code::TURNING)
-    {
-        return std::make_unique<StateTurning>();
-    }
-    if (ctx.requestedState == state_code::MOVING)
-    {
-        return std::make_unique<StateMoving>();
-    }
+    return ctx.drone.speed > ctx.previousSpeed + model::EPS;
+}
 
-    ctx.requestedState = currentCode;
-    ctx.drone.state = currentCode;
-    return nullptr;
+bool speedDecreased(const DroneContext& ctx)
+{
+    return ctx.drone.speed + model::EPS < ctx.previousSpeed;
+}
+
+bool isStopped(const DroneContext& ctx)
+{
+    return ctx.drone.speed <= model::EPS;
 }
 }
 
 std::unique_ptr<IDroneState> StateStopped::execute(DroneContext& ctx)
 {
-    return transitionFrom<StateStopped>(ctx, state_code::STOPPED);
+    if (ctx.turnRequired)
+    {
+        return std::make_unique<StateTurning>();
+    }
+    if (speedIncreased(ctx) || !isStopped(ctx))
+    {
+        return std::make_unique<StateAccelerating>();
+    }
+    return nullptr;
+}
+
+std::unique_ptr<IDroneState> StateStopped::clone() const
+{
+    return std::make_unique<StateStopped>();
 }
 
 const char* StateStopped::name() const
@@ -55,7 +52,25 @@ int StateStopped::code() const
 
 std::unique_ptr<IDroneState> StateAccelerating::execute(DroneContext& ctx)
 {
-    return transitionFrom<StateAccelerating>(ctx, state_code::ACCELERATING);
+    if (ctx.turnRequired || speedDecreased(ctx))
+    {
+        return std::make_unique<StateDecelerating>();
+    }
+    if (isStopped(ctx))
+    {
+        return std::make_unique<StateStopped>();
+    }
+    if (!speedIncreased(ctx) &&
+        ctx.drone.speed >= ctx.config.attackSpeed - model::EPS)
+    {
+        return std::make_unique<StateMoving>();
+    }
+    return nullptr;
+}
+
+std::unique_ptr<IDroneState> StateAccelerating::clone() const
+{
+    return std::make_unique<StateAccelerating>();
 }
 
 const char* StateAccelerating::name() const
@@ -70,7 +85,24 @@ int StateAccelerating::code() const
 
 std::unique_ptr<IDroneState> StateDecelerating::execute(DroneContext& ctx)
 {
-    return transitionFrom<StateDecelerating>(ctx, state_code::DECELERATING);
+    if (isStopped(ctx))
+    {
+        return std::make_unique<StateStopped>();
+    }
+    if (speedIncreased(ctx))
+    {
+        return std::make_unique<StateAccelerating>();
+    }
+    if (!ctx.turnRequired && !speedDecreased(ctx))
+    {
+        return std::make_unique<StateMoving>();
+    }
+    return nullptr;
+}
+
+std::unique_ptr<IDroneState> StateDecelerating::clone() const
+{
+    return std::make_unique<StateDecelerating>();
 }
 
 const char* StateDecelerating::name() const
@@ -85,7 +117,24 @@ int StateDecelerating::code() const
 
 std::unique_ptr<IDroneState> StateTurning::execute(DroneContext& ctx)
 {
-    return transitionFrom<StateTurning>(ctx, state_code::TURNING);
+    if (ctx.turnRequired && !ctx.turnCompleted)
+    {
+        return nullptr;
+    }
+    if (speedDecreased(ctx))
+    {
+        return std::make_unique<StateDecelerating>();
+    }
+    if (ctx.turnCompleted || isStopped(ctx) || speedIncreased(ctx))
+    {
+        return std::make_unique<StateAccelerating>();
+    }
+    return std::make_unique<StateMoving>();
+}
+
+std::unique_ptr<IDroneState> StateTurning::clone() const
+{
+    return std::make_unique<StateTurning>();
 }
 
 const char* StateTurning::name() const
@@ -100,7 +149,24 @@ int StateTurning::code() const
 
 std::unique_ptr<IDroneState> StateMoving::execute(DroneContext& ctx)
 {
-    return transitionFrom<StateMoving>(ctx, state_code::MOVING);
+    if (ctx.turnRequired || speedDecreased(ctx))
+    {
+        return std::make_unique<StateDecelerating>();
+    }
+    if (isStopped(ctx))
+    {
+        return std::make_unique<StateStopped>();
+    }
+    if (speedIncreased(ctx))
+    {
+        return std::make_unique<StateAccelerating>();
+    }
+    return nullptr;
+}
+
+std::unique_ptr<IDroneState> StateMoving::clone() const
+{
+    return std::make_unique<StateMoving>();
 }
 
 const char* StateMoving::name() const
@@ -111,4 +177,21 @@ const char* StateMoving::name() const
 int StateMoving::code() const
 {
     return state_code::MOVING;
+}
+
+void executeDroneState(
+    std::unique_ptr<IDroneState>& state,
+    DroneContext& ctx)
+{
+    if (state == nullptr)
+    {
+        state = std::make_unique<StateStopped>();
+    }
+
+    auto next = state->execute(ctx);
+    if (next)
+    {
+        state = std::move(next);
+    }
+    ctx.drone.state = state->code();
 }

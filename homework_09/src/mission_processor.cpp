@@ -65,12 +65,31 @@ SimStep makeStep(
         predictedTarget};
 }
 
+void updateStateAfterMotion(
+    std::unique_ptr<IDroneState>& state,
+    DroneRuntime& drone,
+    const DroneConfig& config,
+    double previousSpeed,
+    bool turnRequired,
+    bool turnCompleted)
+{
+    DroneContext context{
+        drone,
+        config,
+        previousSpeed,
+        turnRequired,
+        turnCompleted};
+    executeDroneState(state, context);
+}
+
 SimStep advanceOneDynamicStep(
     const DroneConfig& config,
     const AttackPlan& plan,
-    DroneRuntime& drone)
+    DroneRuntime& drone,
+    std::unique_ptr<IDroneState>& state)
 {
     const double dt = config.simTimeStep;
+    const double previousSpeed = drone.speed;
     const double acceleration = model::calcDroneAcceleration(
         config.attackSpeed,
         config.accelPath);
@@ -100,7 +119,8 @@ SimStep advanceOneDynamicStep(
                              model::directionVector(drone.direction) *
                                  moveDistance;
             drone.speed = newSpeed;
-            drone.state = state_code::DECELERATING;
+            updateStateAfterMotion(
+                state, drone, config, previousSpeed, true, false);
 
             return makeStep(
                 drone,
@@ -112,7 +132,9 @@ SimStep advanceOneDynamicStep(
 
         drone.speed = 0.0;
         const double maxTurn = config.angularSpeed * dt;
-        if (std::fabs(turnDelta) <= maxTurn + model::EPS)
+        const bool turnCompleted =
+            std::fabs(turnDelta) <= maxTurn + model::EPS;
+        if (turnCompleted)
         {
             drone.direction = desiredDirection;
         }
@@ -122,7 +144,8 @@ SimStep advanceOneDynamicStep(
                 drone.direction +
                 (turnDelta > 0.0 ? maxTurn : -maxTurn));
         }
-        drone.state = state_code::TURNING;
+        updateStateAfterMotion(
+            state, drone, config, previousSpeed, true, turnCompleted);
 
         return makeStep(
             drone,
@@ -167,19 +190,9 @@ SimStep advanceOneDynamicStep(
             std::atan2(newVelocity.y, newVelocity.x));
     }
 
-    if (newSpeed > drone.speed + model::EPS)
-    {
-        drone.state = state_code::ACCELERATING;
-    }
-    else if (newSpeed + model::EPS < drone.speed)
-    {
-        drone.state = state_code::DECELERATING;
-    }
-    else
-    {
-        drone.state = state_code::MOVING;
-    }
     drone.speed = newSpeed;
+    updateStateAfterMotion(
+        state, drone, config, previousSpeed, false, false);
 
     return makeStep(
         drone,
@@ -196,9 +209,11 @@ SimStep advanceTowardStopPoint(
     Coord displayedDropPoint,
     double horizontalDistance,
     Coord predictedTarget,
-    DroneRuntime& drone)
+    DroneRuntime& drone,
+    std::unique_ptr<IDroneState>& state)
 {
     const double dt = config.simTimeStep;
+    const double previousSpeed = drone.speed;
     const double acceleration = model::calcDroneAcceleration(
         config.attackSpeed,
         config.accelPath);
@@ -209,7 +224,8 @@ SimStep advanceTowardStopPoint(
     {
         drone.position = destination;
         drone.speed = 0.0;
-        drone.state = state_code::STOPPED;
+        updateStateAfterMotion(
+            state, drone, config, previousSpeed, false, false);
         return makeStep(
             drone,
             targetIndex,
@@ -239,9 +255,8 @@ SimStep advanceTowardStopPoint(
                              model::directionVector(drone.direction) *
                                  distance;
             drone.speed = newSpeed;
-            drone.state = newSpeed > model::EPS
-                              ? state_code::DECELERATING
-                              : state_code::STOPPED;
+            updateStateAfterMotion(
+                state, drone, config, previousSpeed, true, false);
             return makeStep(
                 drone,
                 targetIndex,
@@ -252,7 +267,9 @@ SimStep advanceTowardStopPoint(
 
         drone.speed = 0.0;
         double maxTurn = config.angularSpeed * dt;
-        if (std::fabs(turnDelta) <= maxTurn + model::EPS)
+        const bool turnCompleted =
+            std::fabs(turnDelta) <= maxTurn + model::EPS;
+        if (turnCompleted)
         {
             drone.direction = desiredDirection;
         }
@@ -262,7 +279,8 @@ SimStep advanceTowardStopPoint(
                 drone.direction +
                 (turnDelta > 0.0 ? maxTurn : -maxTurn));
         }
-        drone.state = state_code::TURNING;
+        updateStateAfterMotion(
+            state, drone, config, previousSpeed, true, turnCompleted);
         return makeStep(
             drone,
             targetIndex,
@@ -280,7 +298,8 @@ SimStep advanceTowardStopPoint(
         {
             drone.position = destination;
             drone.speed = 0.0;
-            drone.state = state_code::STOPPED;
+            updateStateAfterMotion(
+                state, drone, config, previousSpeed, false, false);
             return makeStep(
                 drone,
                 targetIndex,
@@ -329,22 +348,8 @@ SimStep advanceTowardStopPoint(
     drone.direction = desiredDirection;
     drone.speed = newSpeed;
 
-    if (newSpeed > oldSpeed + model::EPS)
-    {
-        drone.state = state_code::ACCELERATING;
-    }
-    else if (newSpeed + model::EPS < oldSpeed)
-    {
-        drone.state = state_code::DECELERATING;
-    }
-    else if (newSpeed <= model::EPS)
-    {
-        drone.state = state_code::STOPPED;
-    }
-    else
-    {
-        drone.state = state_code::MOVING;
-    }
+    updateStateAfterMotion(
+        state, drone, config, previousSpeed, false, false);
 
     return makeStep(
         drone,
@@ -358,13 +363,16 @@ SimStep advanceTurnInPlace(
     const DroneConfig& config,
     const MissionRuntime& mission,
     DroneRuntime& drone,
+    std::unique_ptr<IDroneState>& state,
     bool& aligned)
 {
     aligned = false;
+    const double previousSpeed = drone.speed;
     drone.speed = 0.0;
     double delta = model::calcTurnDeltaRadians(
         drone.direction,
         mission.attackDirection);
+    const bool turnRequired = std::fabs(delta) > model::EPS;
     double maxTurn = config.angularSpeed * config.simTimeStep;
     if (std::fabs(delta) <= maxTurn + model::EPS)
     {
@@ -377,7 +385,8 @@ SimStep advanceTurnInPlace(
             drone.direction +
             (delta > 0.0 ? maxTurn : -maxTurn));
     }
-    drone.state = state_code::TURNING;
+    updateStateAfterMotion(
+        state, drone, config, previousSpeed, turnRequired, aligned);
     return makeStep(
         drone,
         mission.targetIndex,
@@ -390,9 +399,11 @@ SimStep advanceLockedAttackRun(
     const DroneConfig& config,
     const MissionRuntime& mission,
     DroneRuntime& drone,
+    std::unique_ptr<IDroneState>& state,
     bool& reachedFirePoint)
 {
     reachedFirePoint = false;
+    const double previousSpeed = drone.speed;
     double acceleration = model::calcDroneAcceleration(
         config.attackSpeed,
         config.accelPath);
@@ -418,9 +429,6 @@ SimStep advanceLockedAttackRun(
             config.attackSpeed,
             reachableSpeed);
         drone.direction = mission.attackDirection;
-        drone.state = drone.speed >= config.attackSpeed - model::EPS
-                          ? state_code::MOVING
-                          : state_code::ACCELERATING;
         reachedFirePoint = true;
     }
     else
@@ -429,10 +437,10 @@ SimStep advanceLockedAttackRun(
             drone.position + attackVector * moveDistance;
         drone.speed = newSpeed;
         drone.direction = mission.attackDirection;
-        drone.state = newSpeed >= config.attackSpeed - model::EPS
-                          ? state_code::MOVING
-                          : state_code::ACCELERATING;
     }
+
+    updateStateAfterMotion(
+        state, drone, config, previousSpeed, false, false);
 
     return makeStep(
         drone,
@@ -614,25 +622,6 @@ int MissionProcessor::chooseBestTargetFromState(
     return bestIndex;
 }
 
-void MissionProcessor::synchronizeState(int requestedState)
-{
-    if (state_ == nullptr || loader_ == nullptr)
-    {
-        return;
-    }
-
-    DroneContext context{
-        drone_,
-        loader_->getConfig(),
-        requestedState};
-    auto next = state_->execute(context);
-    if (next)
-    {
-        state_ = std::move(next);
-    }
-    drone_.state = state_->code();
-}
-
 bool MissionProcessor::appendStep(const SimStep& step)
 {
     if (stepCount_ >= MAX_STEPS)
@@ -640,7 +629,6 @@ bool MissionProcessor::appendStep(const SimStep& step)
         finished_ = true;
         return false;
     }
-    synchronizeState(step.state);
     steps_.push_back(step);
     ++stepCount_;
     return true;
@@ -666,7 +654,7 @@ void MissionProcessor::initializeRuntime()
         config.startPos,
         config.initialDir,
         0.0,
-        state_code::STOPPED};
+        state_->code()};
 
     AttackPlan initialPlan = {};
     int initialBestIndex = chooseBestTargetFromState(
@@ -763,6 +751,7 @@ void MissionProcessor::step()
             config,
             mission_,
             drone_,
+            state_,
             reachedFirePoint);
         appendStep(next);
         if (reachedFirePoint)
@@ -779,6 +768,7 @@ void MissionProcessor::step()
             config,
             mission_,
             drone_,
+            state_,
             aligned);
         appendStep(next);
         if (aligned)
@@ -797,7 +787,8 @@ void MissionProcessor::step()
             mission_.firePoint,
             mission_.horizontalDistance,
             mission_.impactTarget,
-            drone_);
+            drone_,
+            state_);
         appendStep(next);
 
         if (drone_.speed <= model::EPS &&
@@ -841,7 +832,8 @@ void MissionProcessor::step()
             mission_.firePoint,
             mission_.horizontalDistance,
             mission_.impactTarget,
-            drone_));
+            drone_,
+            state_));
         return;
     }
 
@@ -855,10 +847,12 @@ void MissionProcessor::step()
         double currentError = model::length(
             currentAimPoint - plan.impactTarget);
         DroneRuntime nextDrone = drone_;
+        auto nextState = state_->clone();
         SimStep nextStep = advanceOneDynamicStep(
             config,
             plan,
-            nextDrone);
+            nextDrone,
+            nextState);
 
         Coord* targetPath = targets_->getTarget(plan.targetIndex);
         int timeSteps = targets_->getTimeSteps();
@@ -906,6 +900,7 @@ void MissionProcessor::step()
 
             bool useSecondStep = false;
             DroneRuntime secondDrone = nextDrone;
+            auto secondState = nextState->clone();
             SimStep secondStep = nextStep;
             Coord secondImpactTarget = nextImpactTarget;
             Coord secondAimPoint = nextAimPoint;
@@ -920,7 +915,8 @@ void MissionProcessor::step()
                 SimStep candidateSecondStep = advanceOneDynamicStep(
                     config,
                     secondPlan,
-                    secondDrone);
+                    secondDrone,
+                    secondState);
                 Coord candidateSecondImpactTarget =
                     model::predictObservedTarget(
                         observedNow,
@@ -965,6 +961,7 @@ void MissionProcessor::step()
             nextStep.aimPoint = nextAimPoint;
             nextStep.predictedTarget = nextImpactTarget;
             drone_ = nextDrone;
+            state_ = std::move(nextState);
             appendStep(nextStep);
 
             if (useSecondStep)
@@ -974,6 +971,7 @@ void MissionProcessor::step()
                 secondStep.aimPoint = secondAimPoint;
                 secondStep.predictedTarget = secondImpactTarget;
                 drone_ = secondDrone;
+                state_ = std::move(secondState);
                 appendStep(secondStep);
             }
         }
@@ -991,11 +989,13 @@ void MissionProcessor::step()
         return;
     }
 
-    appendStep(advanceOneDynamicStep(config, plan, drone_));
+    appendStep(advanceOneDynamicStep(
+        config, plan, drone_, state_));
 }
 
 void MissionProcessor::reset()
-{    initializeRuntime();
+{
+    initializeRuntime();
 }
 
 void MissionProcessor::changeSolver(

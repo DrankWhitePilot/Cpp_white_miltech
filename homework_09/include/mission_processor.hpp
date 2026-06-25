@@ -43,7 +43,6 @@ private:
 
     bool appendStep(const SimStep& step);
     void initializeRuntime();
-    void synchronizeState(int requestedState);
 
     static constexpr int MAX_STEPS = 10000;
 
