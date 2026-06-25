@@ -1,14 +1,12 @@
-#include <algorithm>
 #include "analytical_solver.hpp"
 
+#include <algorithm>
 #include <cmath>
 
-const double G = 9.81;
-const double PI = acos(-1.0);
-const double TWO_PI = 2.0 * PI;
+#include "model_math.hpp"
 
-const double EPS = 1e-9;
-
+namespace model
+{
 double length(Coord value)
 {
     return std::sqrt(value.x * value.x + value.y * value.y);
@@ -17,73 +15,55 @@ double length(Coord value)
 Coord normalize(Coord value)
 {
     double valueLength = length(value);
-
     if (valueLength <= EPS)
     {
         return {1.0, 0.0};
     }
-
     return value / valueLength;
 }
 
 double normalizeAngleTwoPi(double angleRadians)
 {
     double result = std::fmod(angleRadians, TWO_PI);
-
     if (result < 0.0)
     {
         result += TWO_PI;
     }
-
     return result;
 }
 
-double calcTurnDeltaRadians(
-    double currentDirection,
-    double desiredDirection)
+double calcTurnDeltaRadians(double currentDirection, double desiredDirection)
 {
-    double delta =
-        normalizeAngleTwoPi(desiredDirection) -
-        normalizeAngleTwoPi(currentDirection);
-
+    double delta = normalizeAngleTwoPi(desiredDirection) -
+                   normalizeAngleTwoPi(currentDirection);
     while (delta > PI)
     {
         delta -= TWO_PI;
     }
-
     while (delta <= -PI)
     {
         delta += TWO_PI;
     }
-
     return delta;
 }
 
-double directionToRadians(
-    Coord from,
-    Coord to,
-    double fallbackDirection)
+double directionToRadians(Coord from, Coord to, double fallbackDirection)
 {
     if (from == to)
     {
         return normalizeAngleTwoPi(fallbackDirection);
     }
-
     return normalizeAngleTwoPi(
         std::atan2(to.y - from.y, to.x - from.x));
 }
 
-double calcDroneAcceleration(
-    double attackSpeed,
-    double accelerationPath)
+double calcDroneAcceleration(double attackSpeed, double accelerationPath)
 {
     if (attackSpeed <= EPS || accelerationPath <= EPS)
     {
         return 0.0;
     }
-
-    return attackSpeed * attackSpeed /
-           (2.0 * accelerationPath);
+    return attackSpeed * attackSpeed / (2.0 * accelerationPath);
 }
 
 double estimateTravelTimeFromStopped(
@@ -96,9 +76,7 @@ double estimateTravelTimeFromStopped(
         return 0.0;
     }
 
-    double acceleration =
-        calcDroneAcceleration(attackSpeed, accelerationPath);
-
+    double acceleration = calcDroneAcceleration(attackSpeed, accelerationPath);
     if (acceleration <= EPS || accelerationPath <= EPS)
     {
         return distance / attackSpeed;
@@ -110,9 +88,8 @@ double estimateTravelTimeFromStopped(
     }
 
     double accelerationTime = attackSpeed / acceleration;
-
-    return accelerationTime +
-           (distance - accelerationPath) / attackSpeed;
+    double cruiseDistance = distance - accelerationPath;
+    return accelerationTime + cruiseDistance / attackSpeed;
 }
 
 double estimateTravelTimeWithCurrentSpeed(
@@ -121,24 +98,18 @@ double estimateTravelTimeWithCurrentSpeed(
     double attackSpeed,
     double accelerationPath)
 {
-    if (distance <= EPS || attackSpeed <= EPS)
+    if (distance <= EPS)
+    {
+        return 0.0;
+    }
+    if (attackSpeed <= EPS)
     {
         return 0.0;
     }
 
-    if (currentSpeed < 0.0)
-    {
-        currentSpeed = 0.0;
-    }
+    currentSpeed = std::clamp(currentSpeed, 0.0, attackSpeed);
 
-    if (currentSpeed > attackSpeed)
-    {
-        currentSpeed = attackSpeed;
-    }
-
-    double acceleration =
-        calcDroneAcceleration(attackSpeed, accelerationPath);
-
+    double acceleration = calcDroneAcceleration(attackSpeed, accelerationPath);
     if (acceleration <= EPS || accelerationPath <= EPS)
     {
         return distance / attackSpeed;
@@ -149,44 +120,22 @@ double estimateTravelTimeWithCurrentSpeed(
         return distance / attackSpeed;
     }
 
-    double remainingAccelerationDistance =
-        (attackSpeed * attackSpeed -
-         currentSpeed * currentSpeed) /
+    double accelDistanceRemaining =
+        (attackSpeed * attackSpeed - currentSpeed * currentSpeed) /
         (2.0 * acceleration);
-
-    double remainingAccelerationTime =
+    double accelTimeRemaining =
         (attackSpeed - currentSpeed) / acceleration;
 
-    if (distance <= remainingAccelerationDistance + EPS)
+    if (distance <= accelDistanceRemaining + EPS)
     {
         return (-currentSpeed +
-                std::sqrt(
-                    currentSpeed * currentSpeed +
-                    2.0 * acceleration * distance)) /
+                std::sqrt(currentSpeed * currentSpeed +
+                          2.0 * acceleration * distance)) /
                acceleration;
     }
 
-    return remainingAccelerationTime +
-           (distance - remainingAccelerationDistance) /
-               attackSpeed;
-}
-
-Coord directionVector(double directionRadians)
-{
-    return {
-        std::cos(directionRadians),
-        std::sin(directionRadians)
-    };
-}
-
-Coord calcAimPoint(
-    Coord position,
-    double directionRadians,
-    double horizontalDistance)
-{
-    return position +
-           directionVector(directionRadians) *
-               horizontalDistance;
+    return accelTimeRemaining +
+           (distance - accelDistanceRemaining) / attackSpeed;
 }
 
 double estimateTimeToPointWithManeuver(
@@ -195,12 +144,13 @@ double estimateTimeToPointWithManeuver(
     Coord point)
 {
     double distance = length(point - drone.position);
-    double desiredDirection =
-        directionToRadians(drone.position, point, drone.direction);
-    double turnDelta =
-        std::fabs(calcTurnDeltaRadians(
-            drone.direction,
-            desiredDirection));
+    double desiredDirection = directionToRadians(
+        drone.position,
+        point,
+        drone.direction);
+    double turnDelta = std::fabs(calcTurnDeltaRadians(
+        drone.direction,
+        desiredDirection));
 
     if (turnDelta <= config.turnThreshold + EPS)
     {
@@ -211,56 +161,44 @@ double estimateTimeToPointWithManeuver(
             config.accelPath);
     }
 
-    double acceleration =
-        calcDroneAcceleration(
-            config.attackSpeed,
-            config.accelPath);
-
+    double acceleration = calcDroneAcceleration(
+        config.attackSpeed,
+        config.accelPath);
     double stopTime = 0.0;
     Coord stoppedPosition = drone.position;
-
     if (acceleration > EPS && drone.speed > EPS)
     {
         double stopDistance =
-            drone.speed * drone.speed /
-            (2.0 * acceleration);
-
-        stoppedPosition =
-            drone.position +
-            directionVector(drone.direction) * stopDistance;
-
+            drone.speed * drone.speed / (2.0 * acceleration);
+        stoppedPosition = drone.position +
+                          Coord{std::cos(drone.direction),
+                                std::sin(drone.direction)} *
+                              stopDistance;
         stopTime = drone.speed / acceleration;
     }
 
-    double desiredDirectionAfterStop =
-        directionToRadians(
-            stoppedPosition,
-            point,
-            drone.direction);
-
-    double turnAfterStop =
-        std::fabs(calcTurnDeltaRadians(
-            drone.direction,
-            desiredDirectionAfterStop));
-
+    double desiredDirectionAfterStop = directionToRadians(
+        stoppedPosition,
+        point,
+        drone.direction);
+    double turnAfterStop = std::fabs(calcTurnDeltaRadians(
+        drone.direction,
+        desiredDirectionAfterStop));
     double turnTime = 0.0;
-
     if (config.angularSpeed > EPS)
     {
         turnTime = turnAfterStop / config.angularSpeed;
     }
 
-    double distanceAfterStop =
-        length(point - stoppedPosition);
-
-    double travelAfterTurn =
-        estimateTravelTimeFromStopped(
-            distanceAfterStop,
-            config.attackSpeed,
-            config.accelPath);
+    double distanceAfterStop = length(point - stoppedPosition);
+    double travelAfterTurn = estimateTravelTimeFromStopped(
+        distanceAfterStop,
+        config.attackSpeed,
+        config.accelPath);
 
     return stopTime + turnTime + travelAfterTurn;
 }
+
 struct StoppedStateEstimate
 {
     Coord position;
@@ -275,30 +213,26 @@ StoppedStateEstimate estimateStoppedState(
     StoppedStateEstimate result = {
         drone.position,
         drone.direction,
-        0.0
-    };
+        0.0};
 
     double acceleration = calcDroneAcceleration(
         config.attackSpeed,
         config.accelPath);
-
     if (drone.speed <= EPS || acceleration <= EPS)
     {
         return result;
     }
 
     double stopDistance =
-        drone.speed * drone.speed /
-        (2.0 * acceleration);
-
-    result.position =
-        drone.position +
-        directionVector(drone.direction) * stopDistance;
-
+        drone.speed * drone.speed / (2.0 * acceleration);
+    result.position = drone.position +
+                      Coord{std::cos(drone.direction),
+                            std::sin(drone.direction)} *
+                          stopDistance;
     result.time = drone.speed / acceleration;
-
     return result;
 }
+
 double estimateTimeStoppedToStopped(
     double distance,
     double attackSpeed,
@@ -309,30 +243,23 @@ double estimateTimeStoppedToStopped(
         return 0.0;
     }
 
-    double acceleration =
-        calcDroneAcceleration(attackSpeed, accelerationPath);
-
+    double acceleration = calcDroneAcceleration(attackSpeed, accelerationPath);
     if (acceleration <= EPS || attackSpeed <= EPS)
     {
-        return attackSpeed > EPS
-                   ? distance / attackSpeed
-                   : 0.0;
+        return attackSpeed > EPS ? distance / attackSpeed : 0.0;
     }
 
-    double fullProfileDistance =
-        2.0 * accelerationPath;
-
+    double fullProfileDistance = 2.0 * accelerationPath;
     if (distance <= fullProfileDistance + EPS)
     {
         return 2.0 * std::sqrt(distance / acceleration);
     }
 
-    double accelerationTime =
-        attackSpeed / acceleration;
-
+    double accelerationTime = attackSpeed / acceleration;
     return 2.0 * accelerationTime +
            (distance - fullProfileDistance) / attackSpeed;
 }
+
 double estimateTimeMovingToStopped(
     double distance,
     double currentSpeed,
@@ -344,35 +271,23 @@ double estimateTimeMovingToStopped(
         return 0.0;
     }
 
-    double acceleration =
-        calcDroneAcceleration(attackSpeed, accelerationPath);
-
+    double acceleration = calcDroneAcceleration(attackSpeed, accelerationPath);
     if (acceleration <= EPS || attackSpeed <= EPS)
     {
-        return attackSpeed > EPS
-                   ? distance / attackSpeed
-                   : 0.0;
+        return attackSpeed > EPS ? distance / attackSpeed : 0.0;
     }
 
-    currentSpeed =
-        std::clamp(currentSpeed, 0.0, attackSpeed);
-
+    currentSpeed = std::clamp(currentSpeed, 0.0, attackSpeed);
     double stoppingDistance =
-        currentSpeed * currentSpeed /
-        (2.0 * acceleration);
-
+        currentSpeed * currentSpeed / (2.0 * acceleration);
     if (distance + EPS < stoppingDistance)
     {
         return -1.0;
     }
 
     double peakSpeedSquared =
-        acceleration * distance +
-        0.5 * currentSpeed * currentSpeed;
-
-    double peakSpeed =
-        std::sqrt(std::max(0.0, peakSpeedSquared));
-
+        acceleration * distance + 0.5 * currentSpeed * currentSpeed;
+    double peakSpeed = std::sqrt(std::max(0.0, peakSpeedSquared));
     if (peakSpeed <= attackSpeed + EPS)
     {
         return (peakSpeed - currentSpeed) / acceleration +
@@ -380,19 +295,12 @@ double estimateTimeMovingToStopped(
     }
 
     double accelerationDistance =
-        (attackSpeed * attackSpeed -
-         currentSpeed * currentSpeed) /
+        (attackSpeed * attackSpeed - currentSpeed * currentSpeed) /
         (2.0 * acceleration);
-
     double decelerationDistance =
-        attackSpeed * attackSpeed /
-        (2.0 * acceleration);
-
+        attackSpeed * attackSpeed / (2.0 * acceleration);
     double cruiseDistance =
-        distance -
-        accelerationDistance -
-        decelerationDistance;
-
+        distance - accelerationDistance - decelerationDistance;
     if (cruiseDistance < 0.0)
     {
         cruiseDistance = 0.0;
@@ -402,6 +310,7 @@ double estimateTimeMovingToStopped(
            cruiseDistance / attackSpeed +
            attackSpeed / acceleration;
 }
+
 struct ManeuverCandidate
 {
     Coord point;
@@ -420,45 +329,34 @@ double estimateManeuverCandidateTime(
 {
     Coord attackVector = {
         std::cos(attackAngle),
-        std::sin(attackAngle)
-    };
-
+        std::sin(attackAngle)};
     Coord maneuverPoint =
         impactTarget - attackVector * radiusToImpact;
-
     Coord firePoint =
         maneuverPoint + attackVector * config.accelPath;
 
     double acceleration = calcDroneAcceleration(
         config.attackSpeed,
         config.accelPath);
-
-    double attackRunTime =
-        acceleration > EPS
-            ? config.attackSpeed / acceleration
-            : 0.0;
+    double attackRunTime = acceleration > EPS
+                               ? config.attackSpeed / acceleration
+                               : 0.0;
 
     double arrivalTime = 0.0;
     double arrivalDirection = drone.direction;
-
     double distanceToManeuver =
         length(maneuverPoint - drone.position);
-
     double directionToManeuver = directionToRadians(
         drone.position,
         maneuverPoint,
         drone.direction);
-
-    double initialTurn = std::fabs(
-        calcTurnDeltaRadians(
-            drone.direction,
-            directionToManeuver));
-
-    double stoppingDistance =
-        acceleration > EPS
-            ? drone.speed * drone.speed /
-                  (2.0 * acceleration)
-            : 0.0;
+    double initialTurn = std::fabs(calcTurnDeltaRadians(
+        drone.direction,
+        directionToManeuver));
+    double stoppingDistance = acceleration > EPS
+                                  ? drone.speed * drone.speed /
+                                        (2.0 * acceleration)
+                                  : 0.0;
 
     if (initialTurn <= config.turnThreshold + EPS &&
         distanceToManeuver + EPS >= stoppingDistance)
@@ -468,7 +366,6 @@ double estimateManeuverCandidateTime(
             drone.speed,
             config.attackSpeed,
             config.accelPath);
-
         if (movingTime >= 0.0)
         {
             arrivalTime = movingTime;
@@ -478,72 +375,56 @@ double estimateManeuverCandidateTime(
 
     if (arrivalTime <= EPS && distanceToManeuver > EPS)
     {
-        StoppedStateEstimate stopped =
-            estimateStoppedState(config, drone);
-
+        StoppedStateEstimate stopped = estimateStoppedState(config, drone);
         double directionFromStop = directionToRadians(
             stopped.position,
             maneuverPoint,
             stopped.direction);
-
-        double turnToManeuver = std::fabs(
-            calcTurnDeltaRadians(
-                stopped.direction,
-                directionFromStop));
-
-        double turnTime =
-            config.angularSpeed > EPS
-                ? turnToManeuver / config.angularSpeed
-                : 0.0;
+        double turnToManeuver = std::fabs(calcTurnDeltaRadians(
+            stopped.direction,
+            directionFromStop));
+        double turnTime = config.angularSpeed > EPS
+                              ? turnToManeuver / config.angularSpeed
+                              : 0.0;
 
         arrivalTime =
-            stopped.time +
-            turnTime +
+            stopped.time + turnTime +
             estimateTimeStoppedToStopped(
                 length(maneuverPoint - stopped.position),
                 config.attackSpeed,
                 config.accelPath);
-
         arrivalDirection = directionFromStop;
     }
 
-    double finalTurn = std::fabs(
-        calcTurnDeltaRadians(
-            arrivalDirection,
-            attackAngle));
-
-    double finalTurnTime =
-        config.angularSpeed > EPS
-            ? finalTurn / config.angularSpeed
-            : 0.0;
-
-    double total =
-        arrivalTime + finalTurnTime + attackRunTime;
+    double finalTurn = std::fabs(calcTurnDeltaRadians(
+        arrivalDirection,
+        attackAngle));
+    double finalTurnTime = config.angularSpeed > EPS
+                               ? finalTurn / config.angularSpeed
+                               : 0.0;
+    double total = arrivalTime + finalTurnTime + attackRunTime;
 
     if (candidate != nullptr)
     {
         candidate->point = maneuverPoint;
         candidate->firePoint = firePoint;
-        candidate->attackDirection =
-            normalizeAngleTwoPi(attackAngle);
+        candidate->attackDirection = normalizeAngleTwoPi(attackAngle);
         candidate->timeToRelease = total;
     }
 
     return total;
 }
+
 ManeuverCandidate findBestManeuverCandidate(
     const DroneConfig& config,
     const DroneRuntime& drone,
     Coord impactTarget,
     double horizontalDistance)
 {
-    double radiusToImpact =
-        horizontalDistance + config.accelPath;
-
+    double radiusToImpact = horizontalDistance + config.accelPath;
     double angularResolution = std::max(
         config.turnThreshold,
         config.angularSpeed * config.simTimeStep);
-
     if (angularResolution <= EPS)
     {
         angularResolution = 0.1;
@@ -551,15 +432,12 @@ ManeuverCandidate findBestManeuverCandidate(
 
     int sampleCount = static_cast<int>(
         std::ceil(TWO_PI / angularResolution));
-
     if (sampleCount < 8)
     {
         sampleCount = 8;
     }
 
-    double step =
-        TWO_PI / static_cast<double>(sampleCount);
-
+    double step = TWO_PI / static_cast<double>(sampleCount);
     int bestIndex = 0;
     double bestTime = 0.0;
     ManeuverCandidate best = {};
@@ -568,7 +446,6 @@ ManeuverCandidate findBestManeuverCandidate(
     {
         double angle = step * static_cast<double>(i);
         ManeuverCandidate candidate = {};
-
         double time = estimateManeuverCandidateTime(
             config,
             drone,
@@ -576,7 +453,6 @@ ManeuverCandidate findBestManeuverCandidate(
             radiusToImpact,
             angle,
             &candidate);
-
         if (i == 0 || time < bestTime)
         {
             bestIndex = i;
@@ -585,21 +461,12 @@ ManeuverCandidate findBestManeuverCandidate(
         }
     }
 
-    double left =
-        step * static_cast<double>(bestIndex) - step;
+    double left = step * static_cast<double>(bestIndex) - step;
+    double right = step * static_cast<double>(bestIndex) + step;
+    const double golden = 0.5 * (std::sqrt(5.0) - 1.0);
 
-    double right =
-        step * static_cast<double>(bestIndex) + step;
-
-    const double golden =
-        0.5 * (std::sqrt(5.0) - 1.0);
-
-    double x1 =
-        right - golden * (right - left);
-
-    double x2 =
-        left + golden * (right - left);
-
+    double x1 = right - golden * (right - left);
+    double x2 = left + golden * (right - left);
     double f1 = estimateManeuverCandidateTime(
         config,
         drone,
@@ -607,7 +474,6 @@ ManeuverCandidate findBestManeuverCandidate(
         radiusToImpact,
         normalizeAngleTwoPi(x1),
         nullptr);
-
     double f2 = estimateManeuverCandidateTime(
         config,
         drone,
@@ -624,7 +490,6 @@ ManeuverCandidate findBestManeuverCandidate(
             x2 = x1;
             f2 = f1;
             x1 = right - golden * (right - left);
-
             f1 = estimateManeuverCandidateTime(
                 config,
                 drone,
@@ -639,7 +504,6 @@ ManeuverCandidate findBestManeuverCandidate(
             x1 = x2;
             f1 = f2;
             x2 = left + golden * (right - left);
-
             f2 = estimateManeuverCandidateTime(
                 config,
                 drone,
@@ -650,11 +514,8 @@ ManeuverCandidate findBestManeuverCandidate(
         }
     }
 
-    double refinedAngle =
-        normalizeAngleTwoPi(0.5 * (left + right));
-
+    double refinedAngle = normalizeAngleTwoPi(0.5 * (left + right));
     ManeuverCandidate refined = {};
-
     double refinedTime = estimateManeuverCandidateTime(
         config,
         drone,
@@ -662,7 +523,6 @@ ManeuverCandidate findBestManeuverCandidate(
         radiusToImpact,
         refinedAngle,
         &refined);
-
     if (refinedTime < bestTime)
     {
         best = refined;
@@ -670,6 +530,7 @@ ManeuverCandidate findBestManeuverCandidate(
 
     return best;
 }
+
 DropPlan calculateDynamicDropPlan(
     const DroneConfig& config,
     const DroneRuntime& drone,
@@ -680,26 +541,20 @@ DropPlan calculateDynamicDropPlan(
     Coord toTarget = target - drone.position;
     double distanceToTarget = length(toTarget);
     Coord attackVector = normalize(toTarget);
-
-    Coord firePoint =
-        target - attackVector * horizontalDistance;
+    Coord firePoint = target - attackVector * horizontalDistance;
 
     double desiredDirection = directionToRadians(
         drone.position,
         firePoint,
         drone.direction);
-
-    double turnDelta = std::fabs(
-        calcTurnDeltaRadians(
-            drone.direction,
-            desiredDirection));
-
+    double turnDelta = std::fabs(calcTurnDeltaRadians(
+        drone.direction,
+        desiredDirection));
     double acceleration = calcDroneAcceleration(
         config.attackSpeed,
         config.accelPath);
 
     double remainingAccelerationDistance = 0.0;
-
     if (turnDelta > config.turnThreshold + EPS)
     {
         remainingAccelerationDistance = config.accelPath;
@@ -710,7 +565,6 @@ DropPlan calculateDynamicDropPlan(
             drone.speed,
             0.0,
             config.attackSpeed);
-
         remainingAccelerationDistance =
             (config.attackSpeed * config.attackSpeed -
              currentSpeed * currentSpeed) /
@@ -718,19 +572,16 @@ DropPlan calculateDynamicDropPlan(
     }
 
     DropPlan plan = {};
-
     if (horizontalDistance + remainingAccelerationDistance <=
         distanceToTarget + EPS)
     {
         plan.needManeuver = false;
         plan.maneuverPoint = drone.position;
         plan.firePoint = firePoint;
-
         timeToRelease = estimateTimeToPointWithManeuver(
             config,
             drone,
             firePoint);
-
         return plan;
     }
 
@@ -739,20 +590,26 @@ DropPlan calculateDynamicDropPlan(
         drone,
         target,
         horizontalDistance);
-
     plan.needManeuver = true;
     plan.maneuverPoint = candidate.point;
     plan.firePoint = candidate.firePoint;
     timeToRelease = candidate.timeToRelease;
-
     return plan;
 }
-struct ObservedTargetState
+
+Coord directionVector(double directionRadians)
 {
-    Coord position;
-    Coord velocity;
-    Coord acceleration;
-};
+    return {std::cos(directionRadians), std::sin(directionRadians)};
+}
+
+Coord calcAimPoint(
+    Coord position,
+    double directionRadians,
+    double horizontalDistance)
+{
+    return position +
+           directionVector(directionRadians) * horizontalDistance;
+}
 
 ObservedTargetState observeTargetFromPast(
     const Coord* targetPath,
@@ -763,28 +620,23 @@ ObservedTargetState observeTargetFromPast(
     ObservedTargetState state = {
         {0.0, 0.0},
         {0.0, 0.0},
-        {0.0, 0.0}
-    };
-
+        {0.0, 0.0}};
     if (targetPath == nullptr || timeSteps <= 0 || arrayTimeStep <= EPS)
     {
         return state;
     }
-
     if (time < 0.0)
     {
         time = 0.0;
     }
 
-    long long absoluteIndex =
-        static_cast<long long>(std::floor(time / arrayTimeStep + EPS));
-
+    long long absoluteIndex = static_cast<long long>(
+        std::floor(time / arrayTimeStep + EPS));
     int latestIndex = static_cast<int>(absoluteIndex % timeSteps);
     if (latestIndex < 0)
     {
         latestIndex += timeSteps;
     }
-
     state.position = targetPath[latestIndex];
 
     if (absoluteIndex >= 1)
@@ -794,7 +646,6 @@ ObservedTargetState observeTargetFromPast(
         {
             previousIndex += timeSteps;
         }
-
         state.velocity =
             (targetPath[latestIndex] - targetPath[previousIndex]) /
             arrayTimeStep;
@@ -814,7 +665,6 @@ ObservedTargetState observeTargetFromPast(
             state.velocity =
                 (pk * 3.0 - pk1 * 4.0 + pk2) /
                 (2.0 * arrayTimeStep);
-
             state.acceleration =
                 (pk - pk1 * 2.0 + pk2) /
                 (arrayTimeStep * arrayTimeStep);
@@ -823,25 +673,18 @@ ObservedTargetState observeTargetFromPast(
 
     double latestSampleTime = absoluteIndex * arrayTimeStep;
     double elapsed = time - latestSampleTime;
-
     if (elapsed < 0.0)
     {
         elapsed = 0.0;
     }
-
     if (elapsed > arrayTimeStep)
     {
         elapsed = arrayTimeStep;
     }
 
-    state.position =
-        state.position +
-        state.velocity * elapsed +
-        state.acceleration * (0.5 * elapsed * elapsed);
-
-    state.velocity =
-        state.velocity + state.acceleration * elapsed;
-
+    state.position = state.position + state.velocity * elapsed +
+                     state.acceleration * (0.5 * elapsed * elapsed);
+    state.velocity = state.velocity + state.acceleration * elapsed;
     return state;
 }
 
@@ -853,9 +696,7 @@ Coord predictObservedTarget(
     {
         horizon = 0.0;
     }
-
-    return state.position +
-           state.velocity * horizon +
+    return state.position + state.velocity * horizon +
            state.acceleration * (0.5 * horizon * horizon);
 }
 
@@ -868,7 +709,6 @@ Coord predictObservedTargetClamped(
     {
         horizon = 0.0;
     }
-
     if (accelerationHorizon < 0.0)
     {
         accelerationHorizon = 0.0;
@@ -879,9 +719,7 @@ Coord predictObservedTargetClamped(
     {
         curvedTime = accelerationHorizon;
     }
-
     Coord position = predictObservedTarget(state, curvedTime);
-
     if (horizon <= curvedTime + EPS)
     {
         return position;
@@ -889,9 +727,7 @@ Coord predictObservedTargetClamped(
 
     Coord velocityAtClamp =
         state.velocity + state.acceleration * curvedTime;
-
-    return position +
-           velocityAtClamp * (horizon - curvedTime);
+    return position + velocityAtClamp * (horizon - curvedTime);
 }
 
 Coord estimatePredictionResidual(
@@ -908,22 +744,17 @@ Coord estimatePredictionResidual(
     }
 
     double validationTime = currentTime - horizon;
-
     ObservedTargetState past = observeTargetFromPast(
         targetPath,
         timeSteps,
         validationTime,
         arrayTimeStep);
-
-    Coord oldPrediction =
-        predictObservedTarget(past, horizon);
-
+    Coord oldPrediction = predictObservedTarget(past, horizon);
     ObservedTargetState current = observeTargetFromPast(
         targetPath,
         timeSteps,
         currentTime,
         arrayTimeStep);
-
     return current.position - oldPrediction;
 }
 
@@ -948,48 +779,33 @@ double solveFallTime(
         {
             return -1.0;
         }
-
         return std::sqrt(-c / b);
     }
 
     double p = -(b * b) / (3.0 * a * a);
     double q =
-        (2.0 * b * b * b) / (27.0 * a * a * a) +
-        c / a;
-
+        (2.0 * b * b * b) / (27.0 * a * a * a) + c / a;
     if (p >= 0.0)
     {
         return -1.0;
     }
 
     double acosArg =
-        (3.0 * q / (2.0 * p)) *
-        std::sqrt(-3.0 / p);
-
-    if (acosArg < -1.0)
-    {
-        acosArg = -1.0;
-    }
-
-    if (acosArg > 1.0)
-    {
-        acosArg = 1.0;
-    }
-
+        (3.0 * q / (2.0 * p)) * std::sqrt(-3.0 / p);
+    acosArg = std::clamp(acosArg, -1.0, 1.0);
     double phi = std::acos(acosArg);
     double bestTime = -1.0;
 
     for (int k = 0; k < 3; ++k)
     {
-        double t =
+        double time =
             2.0 * std::sqrt(-p / 3.0) *
                 std::cos((phi + 2.0 * PI * k) / 3.0) -
             b / (3.0 * a);
-
-        if (t > EPS &&
-            (bestTime < 0.0 || t < bestTime))
+        if (time > EPS &&
+            (bestTime < 0.0 || time < bestTime))
         {
-            bestTime = t;
+            bestTime = time;
         }
     }
 
@@ -1018,33 +834,22 @@ double calcHorizontalDistance(
     double m4 = m2 * m2;
 
     double term1 = v0 * t;
-    double term2 =
-        -(t * t * d * v0) / (2.0 * m);
-
+    double term2 = -(t * t * d * v0) / (2.0 * m);
     double term3 =
         (t * t * t *
          (6.0 * d * G * l * m -
           6.0 * d2 * (l2 - 1.0) * v0)) /
         (36.0 * m2);
-
     double term4 =
         (std::pow(t, 4.0) *
-         (-6.0 * d2 * G * l *
-              (1.0 + l2 + l4) * m +
-          3.0 * d3 * l2 *
-              (1.0 + l2) * v0 +
-          6.0 * d3 * l4 *
-              (1.0 + l2) * v0)) /
-        (36.0 *
-         (1.0 + l2) *
-         (1.0 + l2) *
-         m3);
-
+         (-6.0 * d2 * G * l * (1.0 + l2 + l4) * m +
+          3.0 * d3 * l2 * (1.0 + l2) * v0 +
+          6.0 * d3 * l4 * (1.0 + l2) * v0)) /
+        (36.0 * (1.0 + l2) * (1.0 + l2) * m3);
     double term5 =
         (std::pow(t, 5.0) *
          (3.0 * d3 * G * l3 * m -
-          3.0 * d4 * l2 *
-              (1.0 + l2) * v0)) /
+          3.0 * d4 * l2 * (1.0 + l2) * v0)) /
         (36.0 * (1.0 + l2) * m4);
 
     return term1 + term2 + term3 + term4 + term5;
@@ -1060,14 +865,11 @@ AttackPlan buildAttackPlanFromRuntime(
     double currentTime)
 {
     AttackPlan plan = {};
-
     plan.targetIndex = targetIndex;
-
     plan.fallTime = solveFallTime(
         ammo,
         config.altitude,
         config.attackSpeed);
-
     plan.horizontalDistance = calcHorizontalDistance(
         ammo,
         plan.fallTime,
@@ -1078,21 +880,17 @@ AttackPlan buildAttackPlanFromRuntime(
         timeSteps,
         currentTime,
         config.arrayTimeStep);
-
     plan.targetNow = observed.position;
     plan.targetVelocity = observed.velocity;
 
     double provisionalReleaseTime = 0.0;
-
     (void)calculateDynamicDropPlan(
         config,
         drone,
         plan.targetNow,
         plan.horizontalDistance,
         provisionalReleaseTime);
-
-    plan.totalTime =
-        provisionalReleaseTime + plan.fallTime;
+    plan.totalTime = provisionalReleaseTime + plan.fallTime;
 
     Coord predictionResidual = estimatePredictionResidual(
         targetPath,
@@ -1100,20 +898,16 @@ AttackPlan buildAttackPlanFromRuntime(
         currentTime,
         config.arrayTimeStep,
         plan.fallTime);
-
-    plan.predictionUncertainty =
-        length(predictionResidual);
+    plan.predictionUncertainty = length(predictionResidual);
 
     plan.predictedTarget = predictObservedTargetClamped(
         observed,
         plan.totalTime,
         plan.fallTime);
-
-    plan.impactTarget =
-        predictObservedTarget(
-            observed,
-            plan.fallTime) +
-        predictionResidual;
+    plan.impactTarget = predictObservedTarget(
+                            observed,
+                            plan.fallTime) +
+                        predictionResidual;
 
     plan.dropPlan = calculateDynamicDropPlan(
         config,
@@ -1124,22 +918,18 @@ AttackPlan buildAttackPlanFromRuntime(
 
     if (plan.dropPlan.needManeuver)
     {
-        ManeuverCandidate candidate =
-            findBestManeuverCandidate(
-                config,
-                drone,
-                plan.predictedTarget,
-                plan.horizontalDistance);
+        ManeuverCandidate candidate = findBestManeuverCandidate(
+            config,
+            drone,
+            plan.predictedTarget,
+            plan.horizontalDistance);
 
         double refinedTotalTime =
             candidate.timeToRelease + plan.fallTime;
-
-        plan.predictedTarget =
-            predictObservedTargetClamped(
-                observed,
-                refinedTotalTime,
-                plan.fallTime);
-
+        plan.predictedTarget = predictObservedTargetClamped(
+            observed,
+            refinedTotalTime,
+            plan.fallTime);
         candidate = findBestManeuverCandidate(
             config,
             drone,
@@ -1152,151 +942,9 @@ AttackPlan buildAttackPlanFromRuntime(
         plan.timeToDrop = candidate.timeToRelease;
     }
 
-    plan.totalTime =
-        plan.timeToDrop + plan.fallTime;
-
+    plan.totalTime = plan.timeToDrop + plan.fallTime;
     return plan;
 }
-double calculateD(double droneX, double droneY, double targetX, double targetY)
-{
-    double dx = targetX - droneX;
-    double dy = targetY - droneY;
-    return sqrt(dx * dx + dy * dy);
-}
-
-double calculateH(const InputData& data, double t)
-{
-    double V0 = data.attackSpeed;
-    double d = data.d;
-    double m = data.m;
-    double l = data.l;
-
-    double h =
-        V0 * t
-        - (t * t * d * V0) / (2 * m)
-        + (pow(t, 3) * (6 * d * G * l * m - 6 * d * d * (l * l - 1) * V0)) / (36 * m * m)
-        + (pow(t, 4) * (-6 * d * d * G * l * (1 + l * l + l * l * l * l) * m
-        + 3 * d * d * d * l * l * (1 + l * l) * V0
-        + 6 * d * d * d * l * l * l * l * (1 + l * l) * V0))
-        / (36 * pow(1 + l * l, 2) * pow(m, 3))
-        + (pow(t, 5) * (3 * d * d * d * G * l * l * l * m
-        - 3 * pow(d, 4) * l * l * (1 + l * l) * V0))
-        / (36 * (1 + l * l) * pow(m, 4));
-
-    return h;
-}
-
-double calculateT(const InputData& data)
-{
-    double a = data.d * G * data.m - 2 * data.d * data.d * data.l * data.attackSpeed;
-    double b = -3 * G * data.m * data.m + 3 * data.d * data.l * data.m * data.attackSpeed;
-    double c = 6 * data.m * data.m * data.zd;
-
-    double p = -(b * b) / (3 * a * a);
-    if (p >= 0) return -1;
-
-    double q = (2 * b * b * b) / (27 * a * a * a) + c / a;
-
-    double acosArg = (3 * q / (2 * p)) * sqrt(-3 / p);
-    if (acosArg < -1 || acosArg > 1) return -1;
-
-    double phi = acos(acosArg);
-
-    double t = 2 * sqrt(-p / 3) * cos((phi + 4 * PI) / 3) - b / (3 * a);
-
-    if (t <= 0) return -1;
-
-    return t;
-}
-
-bool calculateAttackPlan(
-    InputData& data,
-    double droneX,
-    double droneY,
-    double targetX,
-    double targetY,
-    double& aimX,
-    double& aimY,
-    double& fireX,
-    double& fireY,
-    double& totalTime,
-    bool& needManeuver)
-{
-    double D = calculateD(droneX, droneY, targetX, targetY);
-    if (D <= 0.0)
-        return false;
-
-    data.targetX = targetX;
-    data.targetY = targetY;
-
-    double tFall = calculateT(data);
-    if (tFall < 0.0)
-        return false;
-
-    double h = calculateH(data, tFall);
-    if (h <= 1e-6)
-        return false;
-
-    double acceleration =
-        data.attackSpeed * data.attackSpeed / (2.0 * data.accelerationPath);
-
-    auto timeFromStop = [&](double dist) -> double
-    {
-        if (dist <= 0.0)
-            return 0.0;
-
-        if (dist <= data.accelerationPath)
-        {
-            return sqrt(2.0 * dist / acceleration);
-        }
-        else
-        {
-            double accelTime = data.attackSpeed / acceleration;
-            return accelTime + (dist - data.accelerationPath) / data.attackSpeed;
-        }
-    };
-
-    if (D < h + data.accelerationPath)
-    {
-        needManeuver = true;
-
-        aimX = targetX - (targetX - droneX) * (h + data.accelerationPath) / D;
-        aimY = targetY - (targetY - droneY) * (h + data.accelerationPath) / D;
-
-        double D2 = calculateD(aimX, aimY, targetX, targetY);
-        if (D2 <= 0.0)
-            return false;
-
-        double k = (D2 - h) / D2;
-
-        fireX = aimX + (targetX - aimX) * k;
-        fireY = aimY + (targetY - aimY) * k;
-
-        double distToAim = calculateD(droneX, droneY, aimX, aimY);
-        double distAimToFire = calculateD(aimX, aimY, fireX, fireY);
-
-        totalTime =
-            distToAim / data.attackSpeed +
-            timeFromStop(distAimToFire) +
-            tFall;
-    }
-    else
-    {
-        needManeuver = false;
-
-        double k = (D - h) / D;
-
-        fireX = droneX + (targetX - droneX) * k;
-        fireY = droneY + (targetY - droneY) * k;
-
-        aimX = fireX;
-        aimY = fireY;
-
-        double distToFire = calculateD(droneX, droneY, fireX, fireY);
-        totalTime = distToFire / data.attackSpeed + tFall;
-    }
-
-    return true;
 }
 
 bool AnalyticalSolver::solve(
@@ -1314,7 +962,7 @@ bool AnalyticalSolver::solve(
         return false;
     }
 
-    result = buildAttackPlanFromRuntime(
+    result = model::buildAttackPlanFromRuntime(
         config,
         ammo,
         targetPath,
@@ -1323,32 +971,7 @@ bool AnalyticalSolver::solve(
         drone,
         currentTime);
 
-    return result.fallTime > EPS;
-}
-
-bool AnalyticalSolver::solve(
-    InputData& data,
-    double droneX,
-    double droneY,
-    double targetX,
-    double targetY,
-    double& aimX,
-    double& aimY,
-    double& fireX,
-    double& fireY,
-    double& totalTime,
-    bool& needManeuver)
-{
-    return calculateAttackPlan(
-        data,
-        droneX,
-        droneY,
-        targetX,
-        targetY,
-        aimX,
-        aimY,
-        fireX,
-        fireY,
-        totalTime,
-        needManeuver);
+    return result.fallTime > model::EPS &&
+           std::isfinite(result.horizontalDistance) &&
+           result.horizontalDistance >= 0.0;
 }

@@ -1,31 +1,59 @@
 #pragma once
 
-struct Coord {
+#include <cmath>
+
+enum class DroneState
+{
+    STOPPED = 0,
+    ACCELERATING = 1,
+    DECELERATING = 2,
+    TURNING = 3,
+    MOVING = 4
+};
+
+enum class AttackPhase
+{
+    PURSUIT = 0,
+    TO_MANEUVER = 1,
+    ALIGN_ATTACK = 2,
+    ATTACK_RUN = 3
+};
+
+struct Coord
+{
     double x;
     double y;
 
-    Coord operator+(const Coord& other) const {
+    Coord operator+(const Coord& other) const
+    {
         return {x + other.x, y + other.y};
     }
 
-    Coord operator-(const Coord& other) const {
+    Coord operator-(const Coord& other) const
+    {
         return {x - other.x, y - other.y};
     }
 
-    Coord operator*(double s) const {
-        return {x * s, y * s};
+    Coord operator*(double factor) const
+    {
+        return {x * factor, y * factor};
     }
 
-    Coord operator/(double s) const {
-        return {x / s, y / s};
+    Coord operator/(double divisor) const
+    {
+        return {x / divisor, y / divisor};
     }
 
-    bool operator==(const Coord& other) const {
-        return (x == other.x) && (y == other.y);
+    bool operator==(const Coord& other) const
+    {
+        constexpr double epsilon = 1e-9;
+        return std::fabs(x - other.x) <= epsilon &&
+               std::fabs(y - other.y) <= epsilon;
     }
 };
 
-struct DroneConfig {
+struct DroneConfig
+{
     Coord startPos;
     double altitude;
     double initialDir;
@@ -39,7 +67,8 @@ struct DroneConfig {
     double turnThreshold;
 };
 
-struct AmmoParams {
+struct AmmoParams
+{
     char name[32];
     double mass;
     double drag;
@@ -48,59 +77,13 @@ struct AmmoParams {
 
 struct SimStep
 {
-    Coord pos;
+    Coord position;
     double direction;
-    int state;
-    int targetIdx;
+    DroneState state;
+    int targetIndex;
     Coord dropPoint;
     Coord aimPoint;
     Coord predictedTarget;
-};
-
-struct InputData
-{
-    double xd, yd, zd;
-    double initialDir;
-    double attackSpeed;
-    double accelerationPath;
-    char ammo_name[32];
-    double arrayTimeStep;
-    double simTimeStep;
-    double hitRadius;
-    double angularSpeed;
-    double turnThreshold;
-    double m;
-    double d;
-    double l;
-    double targetX;
-    double targetY;
-};
-
-enum DroneState
-{
-    STOPPED = 0,
-    ACCELERATING = 1,
-    DECELERATING = 2,
-    TURNING = 3,
-    MOVING = 4
-};
-
-struct DropPoint
-{
-    bool valid;
-    int targetIdx;
-    Coord point;
-    Coord aimPoint;
-    double totalTime;
-    bool needManeuver;
-};
-
-enum class AttackPhase
-{
-    PURSUIT = 0,
-    TO_MANEUVER = 1,
-    ALIGN_ATTACK = 2,
-    ATTACK_RUN = 3
 };
 
 struct DroneRuntime
