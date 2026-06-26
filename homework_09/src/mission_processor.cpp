@@ -65,134 +65,19 @@ SimStep makeStep(
         predictedTarget};
 }
 
-void updateStateAfterMotion(
-    std::unique_ptr<IDroneState>& state,
-    DroneRuntime& drone,
-    const DroneConfig& config,
-    double previousSpeed,
-    bool turnRequired,
-    bool turnCompleted)
-{
-    DroneContext context{
-        drone,
-        config,
-        previousSpeed,
-        turnRequired,
-        turnCompleted};
-    executeDroneState(state, context);
-}
-
 SimStep advanceOneDynamicStep(
     const DroneConfig& config,
     const AttackPlan& plan,
     DroneRuntime& drone,
     std::unique_ptr<IDroneState>& state)
 {
-    const double dt = config.simTimeStep;
-    const double previousSpeed = drone.speed;
-    const double acceleration = model::calcDroneAcceleration(
-        config.attackSpeed,
-        config.accelPath);
-
-    double desiredDirection = model::directionToRadians(
-        drone.position,
+    DroneContext context{
+        drone,
+        config,
+        DroneMotion::DYNAMIC,
         plan.dropPlan.firePoint,
-        drone.direction);
-    double turnDelta = model::calcTurnDeltaRadians(
-        drone.direction,
-        desiredDirection);
-
-    if (std::fabs(turnDelta) > config.turnThreshold + model::EPS)
-    {
-        if (drone.speed > model::EPS && acceleration > model::EPS)
-        {
-            const double oldSpeed = drone.speed;
-            double newSpeed = oldSpeed - acceleration * dt;
-            if (newSpeed < 0.0)
-            {
-                newSpeed = 0.0;
-            }
-
-            const double moveDistance =
-                0.5 * (oldSpeed + newSpeed) * dt;
-            drone.position = drone.position +
-                             model::directionVector(drone.direction) *
-                                 moveDistance;
-            drone.speed = newSpeed;
-            updateStateAfterMotion(
-                state, drone, config, previousSpeed, true, false);
-
-            return makeStep(
-                drone,
-                plan.targetIndex,
-                plan.dropPlan.firePoint,
-                plan.horizontalDistance,
-                plan.impactTarget);
-        }
-
-        drone.speed = 0.0;
-        const double maxTurn = config.angularSpeed * dt;
-        const bool turnCompleted =
-            std::fabs(turnDelta) <= maxTurn + model::EPS;
-        if (turnCompleted)
-        {
-            drone.direction = desiredDirection;
-        }
-        else
-        {
-            drone.direction = model::normalizeAngleTwoPi(
-                drone.direction +
-                (turnDelta > 0.0 ? maxTurn : -maxTurn));
-        }
-        updateStateAfterMotion(
-            state, drone, config, previousSpeed, true, turnCompleted);
-
-        return makeStep(
-            drone,
-            plan.targetIndex,
-            plan.dropPlan.firePoint,
-            plan.horizontalDistance,
-            plan.impactTarget);
-    }
-
-    Coord oldVelocity =
-        model::directionVector(drone.direction) * drone.speed;
-    Coord desiredVelocity =
-        model::directionVector(desiredDirection) * config.attackSpeed;
-    Coord deltaVelocity = desiredVelocity - oldVelocity;
-    const double deltaVelocityLength = model::length(deltaVelocity);
-    const double maxDeltaVelocity =
-        acceleration > model::EPS ? acceleration * dt : 0.0;
-
-    Coord newVelocity = oldVelocity;
-    if (deltaVelocityLength > model::EPS &&
-        maxDeltaVelocity > model::EPS)
-    {
-        if (deltaVelocityLength <= maxDeltaVelocity + model::EPS)
-        {
-            newVelocity = desiredVelocity;
-        }
-        else
-        {
-            newVelocity = oldVelocity +
-                          deltaVelocity *
-                              (maxDeltaVelocity / deltaVelocityLength);
-        }
-    }
-
-    const double newSpeed = model::length(newVelocity);
-    Coord averageVelocity = (oldVelocity + newVelocity) * 0.5;
-    drone.position = drone.position + averageVelocity * dt;
-
-    if (newSpeed > model::EPS)
-    {
-        drone.direction = model::normalizeAngleTwoPi(
-            std::atan2(newVelocity.y, newVelocity.x));
-    }
-
-    drone.speed = newSpeed;
-    updateStateAfterMotion(
-        state, drone, config, previousSpeed, false, false);
+        0.0};
+    executeDroneState(state, context);
 
     return makeStep(
         drone,
@@ -212,144 +97,13 @@ SimStep advanceTowardStopPoint(
     DroneRuntime& drone,
     std::unique_ptr<IDroneState>& state)
 {
-    const double dt = config.simTimeStep;
-    const double previousSpeed = drone.speed;
-    const double acceleration = model::calcDroneAcceleration(
-        config.attackSpeed,
-        config.accelPath);
-    Coord toDestination = destination - drone.position;
-    double remaining = model::length(toDestination);
-
-    if (remaining <= model::EPS && drone.speed <= model::EPS)
-    {
-        drone.position = destination;
-        drone.speed = 0.0;
-        updateStateAfterMotion(
-            state, drone, config, previousSpeed, false, false);
-        return makeStep(
-            drone,
-            targetIndex,
-            displayedDropPoint,
-            horizontalDistance,
-            predictedTarget);
-    }
-
-    double desiredDirection = model::directionToRadians(
-        drone.position,
+    DroneContext context{
+        drone,
+        config,
+        DroneMotion::STOP_AT_POINT,
         destination,
-        drone.direction);
-    double turnDelta = model::calcTurnDeltaRadians(
-        drone.direction,
-        desiredDirection);
-
-    if (std::fabs(turnDelta) > model::EPS)
-    {
-        if (drone.speed > model::EPS && acceleration > model::EPS)
-        {
-            double oldSpeed = drone.speed;
-            double newSpeed = std::max(
-                0.0,
-                oldSpeed - acceleration * dt);
-            double distance = 0.5 * (oldSpeed + newSpeed) * dt;
-            drone.position = drone.position +
-                             model::directionVector(drone.direction) *
-                                 distance;
-            drone.speed = newSpeed;
-            updateStateAfterMotion(
-                state, drone, config, previousSpeed, true, false);
-            return makeStep(
-                drone,
-                targetIndex,
-                displayedDropPoint,
-                horizontalDistance,
-                predictedTarget);
-        }
-
-        drone.speed = 0.0;
-        double maxTurn = config.angularSpeed * dt;
-        const bool turnCompleted =
-            std::fabs(turnDelta) <= maxTurn + model::EPS;
-        if (turnCompleted)
-        {
-            drone.direction = desiredDirection;
-        }
-        else
-        {
-            drone.direction = model::normalizeAngleTwoPi(
-                drone.direction +
-                (turnDelta > 0.0 ? maxTurn : -maxTurn));
-        }
-        updateStateAfterMotion(
-            state, drone, config, previousSpeed, true, turnCompleted);
-        return makeStep(
-            drone,
-            targetIndex,
-            displayedDropPoint,
-            horizontalDistance,
-            predictedTarget);
-    }
-
-    if (acceleration > model::EPS &&
-        drone.speed <= acceleration * dt + model::EPS)
-    {
-        double stoppingDistance =
-            drone.speed * drone.speed / (2.0 * acceleration);
-        if (std::fabs(stoppingDistance - remaining) <= 1e-7)
-        {
-            drone.position = destination;
-            drone.speed = 0.0;
-            updateStateAfterMotion(
-                state, drone, config, previousSpeed, false, false);
-            return makeStep(
-                drone,
-                targetIndex,
-                displayedDropPoint,
-                horizontalDistance,
-                predictedTarget);
-        }
-    }
-
-    double oldSpeed = drone.speed;
-    double minimumNextSpeed = std::max(
-        0.0,
-        oldSpeed - acceleration * dt);
-    double maximumNextSpeed = std::min(
-        config.attackSpeed,
-        oldSpeed + acceleration * dt);
-
-    double discriminant =
-        acceleration * acceleration * dt * dt -
-        4.0 * (acceleration * dt * oldSpeed -
-               2.0 * acceleration * remaining);
-    double stopLimitedSpeed = 0.0;
-    if (discriminant > 0.0)
-    {
-        stopLimitedSpeed =
-            (-acceleration * dt + std::sqrt(discriminant)) / 2.0;
-    }
-    stopLimitedSpeed = std::max(0.0, stopLimitedSpeed);
-
-    double newSpeed = std::min(maximumNextSpeed, stopLimitedSpeed);
-    if (newSpeed < minimumNextSpeed)
-    {
-        newSpeed = minimumNextSpeed;
-    }
-
-    double moveDistance = 0.5 * (oldSpeed + newSpeed) * dt;
-    if (moveDistance > remaining &&
-        moveDistance - remaining <= 1e-7)
-    {
-        moveDistance = remaining;
-    }
-
-    drone.position = drone.position +
-                     model::directionVector(desiredDirection) *
-                         moveDistance;
-    drone.direction = desiredDirection;
-    drone.speed = newSpeed;
-
-    updateStateAfterMotion(
-        state, drone, config, previousSpeed, false, false);
+        0.0};
+    executeDroneState(state, context);
 
     return makeStep(
         drone,
@@ -366,27 +120,15 @@ SimStep advanceTurnInPlace(
     std::unique_ptr<IDroneState>& state,
     bool& aligned)
 {
-    aligned = false;
-    const double previousSpeed = drone.speed;
-    drone.speed = 0.0;
-    double delta = model::calcTurnDeltaRadians(
-        drone.direction,
-        mission.attackDirection);
-    const bool turnRequired = std::fabs(delta) > model::EPS;
-    double maxTurn = config.angularSpeed * config.simTimeStep;
-    if (std::fabs(delta) <= maxTurn + model::EPS)
-    {
-        drone.direction = mission.attackDirection;
-        aligned = true;
-    }
-    else
-    {
-        drone.direction = model::normalizeAngleTwoPi(
-            drone.direction +
-            (delta > 0.0 ? maxTurn : -maxTurn));
-    }
-    updateStateAfterMotion(
-        state, drone, config, previousSpeed, turnRequired, aligned);
+    DroneContext context{
+        drone,
+        config,
+        DroneMotion::TURN_IN_PLACE,
+        drone.position,
+        mission.attackDirection};
+    executeDroneState(state, context);
+    aligned = context.completed;
+
     return makeStep(
         drone,
         mission.targetIndex,
@@ -402,45 +144,14 @@ SimStep advanceLockedAttackRun(
     std::unique_ptr<IDroneState>& state,
     bool& reachedFirePoint)
 {
-    reachedFirePoint = false;
-    const double previousSpeed = drone.speed;
-    double acceleration = model::calcDroneAcceleration(
-        config.attackSpeed,
-        config.accelPath);
-    double dt = config.simTimeStep;
-    Coord attackVector = model::directionVector(
-        mission.attackDirection);
-    double remaining = model::length(
-        mission.firePoint - drone.position);
-    double oldSpeed = drone.speed;
-    double newSpeed = std::min(
-        config.attackSpeed,
-        oldSpeed + acceleration * dt);
-    double moveDistance = 0.5 * (oldSpeed + newSpeed) * dt;
-
-    if (moveDistance + model::EPS >= remaining)
-    {
-        drone.position = mission.firePoint;
-        double reachableSpeed = std::sqrt(std::max(
-            0.0,
-            oldSpeed * oldSpeed +
-                2.0 * acceleration * remaining));
-        drone.speed = std::min(
-            config.attackSpeed,
-            reachableSpeed);
-        drone.direction = mission.attackDirection;
-        reachedFirePoint = true;
-    }
-    else
-    {
-        drone.position =
-            drone.position + attackVector * moveDistance;
-        drone.speed = newSpeed;
-        drone.direction = mission.attackDirection;
-    }
-
-    updateStateAfterMotion(
-        state, drone, config, previousSpeed, false, false);
+    DroneContext context{
+        drone,
+        config,
+        DroneMotion::LOCKED_ATTACK_RUN,
+        mission.firePoint,
+        mission.attackDirection};
+    executeDroneState(state, context);
+    reachedFirePoint = context.completed;
 
     return makeStep(
         drone,

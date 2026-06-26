@@ -13,13 +13,26 @@ inline constexpr int TURNING = 3;
 inline constexpr int MOVING = 4;
 }
 
+enum class DroneMotion
+{
+    DYNAMIC,
+    STOP_AT_POINT,
+    TURN_IN_PLACE,
+    LOCKED_ATTACK_RUN
+};
+
 struct DroneContext
 {
     DroneRuntime& drone;
     const DroneConfig& config;
-    double previousSpeed;
-    bool turnRequired;
-    bool turnCompleted;
+    DroneMotion motion;
+    Coord destination;
+    double desiredDirection;
+
+    bool completed = false;
+    double previousSpeed = 0.0;
+    bool turnRequired = false;
+    bool turnCompleted = false;
 };
 
 class IDroneState
