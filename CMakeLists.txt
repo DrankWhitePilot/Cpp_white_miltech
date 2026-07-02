@@ -18,6 +18,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 add_subdirectory(homework_04)
 add_subdirectory(homework_05)
 add_subdirectory(homework_07)
+add_subdirectory(homework_08)
 
 # Demo-код для заняття 2.4: локальне і віддалене відлагодження через GDB.
 add_subdirectory(demos/lesson_2_4/debug_probe)
