@@ -3,7 +3,7 @@
 #include <string>
 #include <vector>
 
-#include "interfaces.hpp"
+#include "i_target_provider.hpp"
 
 class JsonTargetProvider : public ITargetProvider
 {
