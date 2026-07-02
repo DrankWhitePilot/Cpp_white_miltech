@@ -419,6 +419,19 @@ std::unique_ptr<IDroneState> StateDecelerating::execute(
     DroneContext& ctx)
 {
     performMotion(ctx);
+
+    if (ctx.motion == DroneMotion::DYNAMIC && ctx.turnRequired)
+    {
+        const double acceleration = model::calcDroneAcceleration(
+            ctx.config.attackSpeed,
+            ctx.config.accelPath);
+        if (ctx.previousSpeed > model::EPS && acceleration > model::EPS)
+        {
+            return nullptr;
+        }
+        return std::make_unique<StateTurning>();
+    }
+
     if (isStopped(ctx))
     {
         return std::make_unique<StateStopped>();
