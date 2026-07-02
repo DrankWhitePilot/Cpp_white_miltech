@@ -80,7 +80,7 @@ int main(int argc, char* argv[])
 {
     std::string inputDir =
         argc >= 2 ? argv[1] : "homework_09/data";
-    bool useTable = argc >= 3 && std::string(argv[2]) == "table";
+    const bool useTable = !(argc >= 3 && std::string(argv[2]) == "analytical");
 
     std::string configPath = joinPath(inputDir, "config.json");
     std::string ammoPath = joinPath(inputDir, "ammo.json");
