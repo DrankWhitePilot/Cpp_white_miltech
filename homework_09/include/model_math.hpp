@@ -42,6 +42,16 @@ Coord estimatePredictionResidual(
     double arrayTimeStep,
     double horizon);
 
+double solveFallTime(
+    const AmmoParams& ammo,
+    double altitude,
+    double attackSpeed);
+
+double calcHorizontalDistance(
+    const AmmoParams& ammo,
+    double fallTime,
+    double attackSpeed);
+
 AttackPlan buildAttackPlanWithBallistics(
     const DroneConfig& config,
     const Coord* targetPath,
