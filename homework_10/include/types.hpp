@@ -1,6 +1,5 @@
 #pragma once
 
-#include <cmath>
 #include <string>
 
 enum class AttackPhase
@@ -16,32 +15,11 @@ struct Coord
     double x;
     double y;
 
-    Coord operator+(const Coord& other) const
-    {
-        return {x + other.x, y + other.y};
-    }
-
-    Coord operator-(const Coord& other) const
-    {
-        return {x - other.x, y - other.y};
-    }
-
-    Coord operator*(double factor) const
-    {
-        return {x * factor, y * factor};
-    }
-
-    Coord operator/(double divisor) const
-    {
-        return {x / divisor, y / divisor};
-    }
-
-    bool operator==(const Coord& other) const
-    {
-        constexpr double epsilon = 1e-9;
-        return std::fabs(x - other.x) <= epsilon &&
-               std::fabs(y - other.y) <= epsilon;
-    }
+    Coord operator+(const Coord& other) const;
+    Coord operator-(const Coord& other) const;
+    Coord operator*(double factor) const;
+    Coord operator/(double divisor) const;
+    bool operator==(const Coord& other) const;
 };
 
 struct DroneConfig
@@ -74,6 +52,12 @@ struct AmmoParams
     double mass;
     double drag;
     double lift;
+};
+
+struct BallisticResult
+{
+    double fallTime = 0.0;
+    double horizontalDistance = 0.0;
 };
 
 struct SimStep

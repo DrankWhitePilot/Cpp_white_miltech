@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <fstream>
 #include <iostream>
 #include <thread>
@@ -89,7 +90,6 @@ int ThreadSafeTargetProvider::load()
         std::lock_guard<std::mutex> lock(targetsMutex_);
         trajectories_ = std::move(loaded);
         targets_ = std::move(snapshots);
-        indices_.assign(targets_.size(), 0U);
     }
     return 0;
 }
@@ -102,38 +102,67 @@ void ThreadSafeTargetProvider::run()
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 
-    const double safeScale = std::max(timeScale_, 0.001);
-    const double safeStep = std::max(targetTimeStep_, 0.001);
-    const auto sleepDuration = std::chrono::duration<double>(safeStep / safeScale);
+    const double scale = std::max(timeScale_, 0.001);
+    const double tick = std::max(targetTimeStep_, 0.001);
+    const auto period = std::chrono::duration<double>(tick / scale);
+    const auto startedAt = std::chrono::steady_clock::now();
+    auto nextTick = startedAt;
 
     while (!stopRequested_.load())
     {
-        std::this_thread::sleep_for(sleepDuration);
-        if (!stopRequested_.load())
+        const auto now = std::chrono::steady_clock::now();
+        const double elapsed =
+            std::chrono::duration<double>(now - startedAt).count() * scale;
+        updateTargets(elapsed);
+
+        TargetSnapshot snapshot;
+        snapshot.timeSecSinceStart = elapsed;
         {
-            updateTargets();
+            std::lock_guard<std::mutex> lock(targetsMutex_);
+            snapshot.targets = targets_;
         }
+        snapshots_.push(std::move(snapshot));
+
+        nextTick += std::chrono::duration_cast<
+            std::chrono::steady_clock::duration>(period);
+        std::this_thread::sleep_until(nextTick);
     }
 }
 
-void ThreadSafeTargetProvider::updateTargets()
+void ThreadSafeTargetProvider::updateTargets(double elapsed)
 {
-    std::lock_guard<std::mutex> lock(targetsMutex_);
-    for (std::size_t i = 0; i < trajectories_.size(); ++i)
+    const double segment = std::max(arrayTimeStep_, model::EPS);
+    std::vector<Target> updated;
+    updated.reserve(trajectories_.size());
+
+    for (const auto& trajectory : trajectories_)
     {
-        const auto& trajectory = trajectories_[i];
         if (trajectory.empty())
         {
+            updated.push_back({});
             continue;
         }
 
-        const std::size_t previous = indices_[i];
-        const std::size_t next = (previous + 1U) % trajectory.size();
-        const double dt = std::max(arrayTimeStep_, model::EPS);
-        targets_[i].pos = trajectory[next];
-        targets_[i].velocity = (trajectory[next] - trajectory[previous]) / dt;
-        indices_[i] = next;
+        const auto absoluteIndex = static_cast<long long>(
+            std::floor(elapsed / segment + model::EPS));
+        const std::size_t current = static_cast<std::size_t>(
+            absoluteIndex % static_cast<long long>(trajectory.size()));
+        const std::size_t next = (current + 1U) % trajectory.size();
+        const double segmentStart =
+            static_cast<double>(absoluteIndex) * segment;
+        const double alpha = std::clamp(
+            (elapsed - segmentStart) / segment,
+            0.0,
+            1.0);
+        const Coord delta = trajectory[next] - trajectory[current];
+
+        updated.push_back({
+            trajectory[current] + delta * alpha,
+            delta / segment});
     }
+
+    std::lock_guard<std::mutex> lock(targetsMutex_);
+    targets_ = std::move(updated);
 }
 
 bool ThreadSafeTargetProvider::isThreadReady() const
@@ -165,4 +194,9 @@ Target ThreadSafeTargetProvider::getTarget(int index) const
         return {};
     }
     return targets_[static_cast<std::size_t>(index)];
+}
+
+bool ThreadSafeTargetProvider::tryPopSnapshot(TargetSnapshot& snapshot)
+{
+    return snapshots_.tryPop(snapshot);
 }

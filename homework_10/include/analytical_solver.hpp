@@ -1,15 +1,11 @@
 #pragma once
 
-#include "interfaces.hpp"
+#include "i_ballistic_solver.hpp"
 
-class AnalyticalSolver : public IBallisticSolver
+class AnalyticalSolver final : public IBallisticSolver
 {
 public:
     bool solve(const DroneConfig& config,
                const AmmoParams& ammo,
-               const Target& target,
-               int targetIndex,
-               const DroneRuntime& drone,
-               double currentTime,
-               AttackPlan& result) override;
+               BallisticResult& result) override;
 };

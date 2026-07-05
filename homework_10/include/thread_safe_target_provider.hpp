@@ -5,7 +5,8 @@
 #include <string>
 #include <vector>
 
-#include "interfaces.hpp"
+#include "i_target_provider.hpp"
+#include "thread_safe_queue.hpp"
 
 class ThreadSafeTargetProvider final : public ITargetProvider
 {
@@ -22,9 +23,10 @@ public:
     void stop() override;
     int getTargetCount() const override;
     Target getTarget(int index) const override;
+    bool tryPopSnapshot(TargetSnapshot& snapshot) override;
 
 private:
-    void updateTargets();
+    void updateTargets(double elapsed);
 
     std::string source_;
     double arrayTimeStep_;
@@ -33,7 +35,7 @@ private:
 
     std::vector<std::vector<Coord>> trajectories_;
     std::vector<Target> targets_;
-    std::vector<std::size_t> indices_;
+    ThreadSafeQueue<TargetSnapshot> snapshots_;
 
     mutable std::mutex targetsMutex_;
     std::atomic<bool> ready_{false};

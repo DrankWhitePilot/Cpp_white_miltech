@@ -12,8 +12,7 @@ DronePhysics::DronePhysics(DroneConfig config)
       runtime_{config_.startPos,
                config_.initialDir,
                0.0,
-               state_code::STOPPED},
-      state_(std::make_unique<StateStopped>())
+               state_code::STOPPED}
 {
     activeCommand_.state = state_code::STOPPED;
     activeCommand_.angleSpeed = config_.angularSpeed;
@@ -34,37 +33,60 @@ void DronePhysics::run()
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 
-    const auto startedAt = std::chrono::steady_clock::now();
-    const double dt = std::max(config_.physicsTimeStep, 0.001);
+    const double nominalDt = std::max(config_.physicsTimeStep, 0.001);
     const double scale = std::max(config_.timeScale, 0.001);
-    const auto sleepDuration = std::chrono::duration<double>(dt / scale);
-    DroneConfig physicsConfig = config_;
-    physicsConfig.simTimeStep = dt;
+    const auto period = std::chrono::duration<double>(nominalDt / scale);
+    const auto startedAt = std::chrono::steady_clock::now();
+    auto previousTick = startedAt;
+    auto nextTick = startedAt;
 
     while (!stopRequested_.load())
     {
+        const auto now = std::chrono::steady_clock::now();
+        const double elapsedDt = std::max(
+            0.0,
+            std::chrono::duration<double>(now - previousTick).count() *
+                scale);
+        previousTick = now;
+
         DroneCommand command;
-        bool received = false;
         while (commands_.tryPop(command))
         {
+            if (command.id != activeCommand_.id)
+            {
+                activeCommandCompleted_ = false;
+            }
             activeCommand_ = command;
-            received = true;
         }
 
-        DroneContext context{
-            runtime_,
-            physicsConfig,
-            activeCommand_.motion,
-            activeCommand_.destination,
-            activeCommand_.desiredDirection};
-        executeDroneState(state_, context);
+        double remainingDt = elapsedDt;
+        while (remainingDt > model::EPS && !activeCommandCompleted_)
+        {
+            const double stepDt = std::min(remainingDt, nominalDt);
+            DroneConfig physicsConfig = config_;
+            physicsConfig.simTimeStep = stepDt;
+            if (activeCommand_.angleSpeed > model::EPS)
+            {
+                physicsConfig.angularSpeed = activeCommand_.angleSpeed;
+            }
 
-        const auto now = std::chrono::steady_clock::now();
-        const double elapsed = std::chrono::duration<double>(
-            now - startedAt).count() * scale;
-        const Coord velocity = model::directionVector(runtime_.direction) *
-                               runtime_.speed;
+            runtime_.state = activeCommand_.state;
+            DroneContext context{
+                runtime_,
+                physicsConfig,
+                activeCommand_.motion,
+                activeCommand_.destination,
+                activeCommand_.desiredDirection};
+            integrateDroneMotion(context);
+            activeCommandCompleted_ = context.completed;
+            remainingDt -= stepDt;
+        }
 
+        runtime_.state = activeCommand_.state;
+        const double elapsed =
+            std::chrono::duration<double>(now - startedAt).count() * scale;
+        const Coord velocity =
+            model::directionVector(runtime_.direction) * runtime_.speed;
         {
             std::lock_guard<std::mutex> lock(telemetryMutex_);
             telemetry_ = {
@@ -73,14 +95,13 @@ void DronePhysics::run()
                 runtime_.direction,
                 runtime_.state,
                 elapsed,
-                context.completed};
-            if (received && !context.completed)
-            {
-                telemetry_.commandCompleted = false;
-            }
+                activeCommandCompleted_,
+                activeCommandCompleted_ ? activeCommand_.id : 0};
         }
 
-        std::this_thread::sleep_for(sleepDuration);
+        nextTick += std::chrono::duration_cast<
+            std::chrono::steady_clock::duration>(period);
+        std::this_thread::sleep_until(nextTick);
     }
 }
 

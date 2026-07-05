@@ -24,6 +24,8 @@ double directionToRadians(Coord from, Coord to, double fallbackDirection);
 double calcDroneAcceleration(double attackSpeed, double accelerationPath);
 Coord directionVector(double directionRadians);
 Coord calcAimPoint(Coord position, double directionRadians, double horizontalDistance);
+double solveFallTime(const AmmoParams& ammo, double altitude, double attackSpeed);
+double calcHorizontalDistance(const AmmoParams& ammo, double fallTime, double attackSpeed);
 
 ObservedTargetState observeTargetFromPast(
     const Coord* targetPath,
@@ -52,13 +54,6 @@ AttackPlan buildAttackPlanWithBallistics(
     double fallTime,
     double horizontalDistance);
 
-AttackPlan buildAttackPlanWithBallistics(
-    const DroneConfig& config,
-    const Target& target,
-    int targetIndex,
-    const DroneRuntime& drone,
-    double fallTime,
-    double horizontalDistance);
 
 DropPlan calculateDynamicDropPlan(
     const DroneConfig& config,

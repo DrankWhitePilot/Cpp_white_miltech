@@ -91,6 +91,9 @@ public:
     int code() const override;
 };
 
+void integrateDroneMotion(DroneContext& ctx);
+void prepareDroneStateContext(DroneContext& ctx);
+
 void executeDroneState(
     std::unique_ptr<IDroneState>& state,
     DroneContext& ctx);

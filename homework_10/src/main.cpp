@@ -9,7 +9,8 @@
 
 #include "drone_physics.hpp"
 #include "factory.hpp"
-#include "interfaces.hpp"
+#include "i_config_loader.hpp"
+#include "i_target_provider.hpp"
 #include "json.hpp"
 #include "mission_processor.hpp"
 #include "model_math.hpp"
@@ -80,12 +81,16 @@ int main(int argc, char* argv[])
     const std::string inputDir =
         argc >= 2 ? argv[1] : "homework_10/data";
     const bool useTable =
-        argc >= 3 && std::string(argv[2]) == "table";
+        !(argc >= 3 && std::string(argv[2]) == "analytical");
 
     const std::string configPath = joinPath(inputDir, "config.json");
     const std::string ammoPath = joinPath(inputDir, "ammo.json");
     const std::string targetsPath = joinPath(inputDir, "targets.json");
-    const std::string tablePath = joinPath(inputDir, "ballistic_table.txt");
+    std::string tablePath = joinPath(inputDir, "ballistic_table.txt");
+    if (!std::ifstream(tablePath).good())
+    {
+        tablePath = "homework_10/data/ballistic_table.txt";
+    }
     const std::string outputPath = joinPath(inputDir, "simulation.json");
 
     auto loader = createLoader(LoaderType::FILE, configPath, ammoPath);

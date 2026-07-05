@@ -18,19 +18,14 @@ bool TableSolver::isLoaded() const
 bool TableSolver::solve(
     const DroneConfig& config,
     const AmmoParams& ammo,
-    const Target& target,
-    int targetIndex,
-    const DroneRuntime& drone,
-    double currentTime,
-    AttackPlan& result)
+    BallisticResult& result)
 {
-    (void)currentTime;
     if (!table_.valid())
     {
         return false;
     }
 
-    BallisticTable::Result tableResult = table_.lookup(
+    const BallisticTable::Result tableResult = table_.lookup(
         config.altitude,
         config.attackSpeed,
         ammo.mass,
@@ -45,12 +40,7 @@ bool TableSolver::solve(
         return false;
     }
 
-    result = model::buildAttackPlanWithBallistics(
-        config,
-        target,
-        targetIndex,
-        drone,
-        tableResult.t,
-        tableResult.hDist);
+    result.fallTime = tableResult.t;
+    result.horizontalDistance = tableResult.hDist;
     return true;
 }

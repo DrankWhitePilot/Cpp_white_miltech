@@ -3,7 +3,7 @@
 #include <string>
 
 #include "ballistic_table.hpp"
-#include "interfaces.hpp"
+#include "i_ballistic_solver.hpp"
 
 class TableSolver final : public IBallisticSolver
 {
@@ -12,11 +12,7 @@ public:
 
     bool solve(const DroneConfig& config,
                const AmmoParams& ammo,
-               const Target& target,
-               int targetIndex,
-               const DroneRuntime& drone,
-               double currentTime,
-               AttackPlan& result) override;
+               BallisticResult& result) override;
 
     bool isLoaded() const;
 
