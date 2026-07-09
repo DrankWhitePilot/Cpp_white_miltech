@@ -4,8 +4,8 @@
 
 #include "analytical_solver.hpp"
 #include "file_config_loader.hpp"
+#include "json_target_provider.hpp"
 #include "table_solver.hpp"
-#include "thread_safe_target_provider.hpp"
 
 std::unique_ptr<IBallisticSolver> createSolver(
     SolverType type,
@@ -23,19 +23,12 @@ std::unique_ptr<IBallisticSolver> createSolver(
 
 std::unique_ptr<ITargetProvider> createProvider(
     ProviderType type,
-    const std::string& param,
-    double arrayTimeStep,
-    double targetTimeStep,
-    double timeScale)
+    const std::string& param)
 {
     switch (type)
     {
     case ProviderType::JSON:
-        return std::make_unique<ThreadSafeTargetProvider>(
-            param,
-            arrayTimeStep,
-            targetTimeStep,
-            timeScale);
+        return std::make_unique<JsonTargetProvider>(param);
     }
     return nullptr;
 }

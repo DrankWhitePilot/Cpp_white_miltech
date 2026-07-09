@@ -5,39 +5,44 @@
 #include <string>
 #include <vector>
 
-#include "i_target_provider.hpp"
-#include "thread_safe_queue.hpp"
+#include "interfaces.hpp"
 
 class ThreadSafeTargetProvider final : public ITargetProvider
 {
 public:
-    ThreadSafeTargetProvider(std::string source,
-                             double arrayTimeStep,
-                             double targetTimeStep,
-                             double timeScale);
+    explicit ThreadSafeTargetProvider(std::string source);
+    ~ThreadSafeTargetProvider() override;
 
     int load() override;
-    void run() override;
-    bool isThreadReady() const override;
-    void start() override;
-    void stop() override;
     int getTargetCount() const override;
-    Target getTarget(int index) const override;
-    bool tryPopSnapshot(TargetSnapshot& snapshot) override;
+    int getTimeSteps() const override;
+    Coord* getTarget(int index) override;
+    Coord** getTargets() override;
+
+    void setTiming(double arrayTimeStep, double timeScale);
+    bool isThreadReady() const;
+    void start();
+    void stop();
+    void run();
+
+    Target getCurrentTarget(int index) const;
+    std::vector<Target> getSnapshot() const;
 
 private:
-    void updateTargets(double elapsed);
+    void updateCurrentTargetsLocked(int sampleIndex);
+    Coord calcVelocity(int targetIndex, int sampleIndex) const;
 
     std::string source_;
-    double arrayTimeStep_;
-    double targetTimeStep_;
-    double timeScale_;
+    std::vector<std::vector<Coord>> paths_;
+    std::vector<Coord*> targetPointers_;
+    std::vector<Target> currentTargets_;
 
-    std::vector<std::vector<Coord>> trajectories_;
-    std::vector<Target> targets_;
-    ThreadSafeQueue<TargetSnapshot> snapshots_;
+    int targetCount_ = 0;
+    int timeSteps_ = 0;
+    double arrayTimeStep_ = 0.1;
+    double timeScale_ = 1000.0;
 
-    mutable std::mutex targetsMutex_;
+    mutable std::mutex mutex_;
     std::atomic<bool> ready_{false};
     std::atomic<bool> started_{false};
     std::atomic<bool> stopRequested_{false};

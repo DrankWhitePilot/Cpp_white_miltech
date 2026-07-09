@@ -16,10 +16,7 @@ std::unique_ptr<IBallisticSolver> createSolver(
     const std::string& param = {});
 std::unique_ptr<ITargetProvider> createProvider(
     ProviderType type,
-    const std::string& param,
-    double arrayTimeStep,
-    double targetTimeStep,
-    double timeScale);
+    const std::string& param);
 std::unique_ptr<IConfigLoader> createLoader(
     LoaderType type,
     const std::string& configSource,

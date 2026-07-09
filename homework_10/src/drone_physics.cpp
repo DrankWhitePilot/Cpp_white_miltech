@@ -7,102 +7,43 @@
 
 #include "model_math.hpp"
 
-DronePhysics::DronePhysics(DroneConfig config)
-    : config_(std::move(config)),
-      runtime_{config_.startPos,
-               config_.initialDir,
-               0.0,
-               state_code::STOPPED}
+namespace
 {
-    activeCommand_.state = state_code::STOPPED;
-    activeCommand_.angleSpeed = config_.angularSpeed;
-    activeCommand_.motion = DroneMotion::STOP_AT_POINT;
-    activeCommand_.destination = config_.startPos;
-    activeCommand_.desiredDirection = config_.initialDir;
-
-    telemetry_.pos = runtime_.position;
-    telemetry_.direction = runtime_.direction;
-    telemetry_.state = runtime_.state;
+Coord velocityFromRuntime(const DroneRuntime& drone)
+{
+    return model::directionVector(drone.direction) * drone.speed;
+}
 }
 
-void DronePhysics::run()
+DronePhysics::DronePhysics(const DroneConfig& config)
 {
-    ready_.store(true);
-    while (!stopRequested_.load() && !started_.load())
-    {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
+    configure(config);
+}
 
-    const double nominalDt = std::max(config_.physicsTimeStep, 0.001);
-    const double scale = std::max(config_.timeScale, 0.001);
-    const auto period = std::chrono::duration<double>(nominalDt / scale);
-    const auto startedAt = std::chrono::steady_clock::now();
-    auto previousTick = startedAt;
-    auto nextTick = startedAt;
+DronePhysics::~DronePhysics()
+{
+    stop();
+}
 
-    while (!stopRequested_.load())
-    {
-        const auto now = std::chrono::steady_clock::now();
-        const double elapsedDt = std::max(
-            0.0,
-            std::chrono::duration<double>(now - previousTick).count() *
-                scale);
-        previousTick = now;
+void DronePhysics::configure(const DroneConfig& config)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    config_ = config;
+}
 
-        DroneCommand command;
-        while (commands_.tryPop(command))
-        {
-            if (command.id != activeCommand_.id)
-            {
-                activeCommandCompleted_ = false;
-            }
-            activeCommand_ = command;
-        }
+void DronePhysics::reset(Coord position, double direction)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    runtime_ = {position, direction, 0.0, state_code::STOPPED};
+    velocity_ = {0.0, 0.0};
+    timeSecSinceStart_ = 0.0;
+}
 
-        double remainingDt = elapsedDt;
-        while (remainingDt > model::EPS && !activeCommandCompleted_)
-        {
-            const double stepDt = std::min(remainingDt, nominalDt);
-            DroneConfig physicsConfig = config_;
-            physicsConfig.simTimeStep = stepDt;
-            if (activeCommand_.angleSpeed > model::EPS)
-            {
-                physicsConfig.angularSpeed = activeCommand_.angleSpeed;
-            }
-
-            runtime_.state = activeCommand_.state;
-            DroneContext context{
-                runtime_,
-                physicsConfig,
-                activeCommand_.motion,
-                activeCommand_.destination,
-                activeCommand_.desiredDirection};
-            integrateDroneMotion(context);
-            activeCommandCompleted_ = context.completed;
-            remainingDt -= stepDt;
-        }
-
-        runtime_.state = activeCommand_.state;
-        const double elapsed =
-            std::chrono::duration<double>(now - startedAt).count() * scale;
-        const Coord velocity =
-            model::directionVector(runtime_.direction) * runtime_.speed;
-        {
-            std::lock_guard<std::mutex> lock(telemetryMutex_);
-            telemetry_ = {
-                runtime_.position,
-                velocity,
-                runtime_.direction,
-                runtime_.state,
-                elapsed,
-                activeCommandCompleted_,
-                activeCommandCompleted_ ? activeCommand_.id : 0};
-        }
-
-        nextTick += std::chrono::duration_cast<
-            std::chrono::steady_clock::duration>(period);
-        std::this_thread::sleep_until(nextTick);
-    }
+void DronePhysics::setDirection(double direction)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    runtime_.direction = direction;
+    velocity_ = velocityFromRuntime(runtime_);
 }
 
 bool DronePhysics::isThreadReady() const
@@ -118,15 +59,81 @@ void DronePhysics::start()
 void DronePhysics::stop()
 {
     stopRequested_.store(true);
-}
-
-void DronePhysics::submitCommand(const DroneCommand& command)
-{
-    commands_.push(command);
+    commands_.close();
 }
 
 DroneTelemetry DronePhysics::getTelemetry() const
 {
-    std::lock_guard<std::mutex> lock(telemetryMutex_);
-    return telemetry_;
+    std::lock_guard<std::mutex> lock(mutex_);
+    return {
+        runtime_.position,
+        velocity_,
+        runtime_.direction,
+        runtime_.state,
+        timeSecSinceStart_};
+}
+
+DroneRuntime DronePhysics::getRuntime() const
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    return runtime_;
+}
+
+DronePhysicsResult DronePhysics::executeCommandLocked(const DroneCommand& command)
+{
+    runtime_ = command.runtime;
+    velocity_ = velocityFromRuntime(runtime_);
+    timeSecSinceStart_ += config_.simTimeStep;
+
+    return {
+        {runtime_.position,
+         velocity_,
+         runtime_.direction,
+         runtime_.state,
+         timeSecSinceStart_},
+        command.completed};
+}
+
+DronePhysicsResult DronePhysics::executeCommandSync(const DroneCommand& command)
+{
+    if (!ready_.load() || !started_.load() || stopRequested_.load())
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return executeCommandLocked(command);
+    }
+
+    DroneCommand queued = command;
+    queued.response = std::make_shared<std::promise<DronePhysicsResult>>();
+    auto future = queued.response->get_future();
+    commands_.push(std::move(queued));
+    return future.get();
+}
+
+void DronePhysics::run()
+{
+    ready_.store(true);
+    while (!stopRequested_.load() && !started_.load())
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    while (!stopRequested_.load())
+    {
+        DroneCommand command;
+        if (!commands_.waitPop(command))
+        {
+            break;
+        }
+
+        DronePhysicsResult result;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            result = executeCommandLocked(command);
+        }
+
+        if (command.response)
+        {
+            command.response->set_value(result);
+        }
+    }
 }

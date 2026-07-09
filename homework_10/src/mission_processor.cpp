@@ -7,11 +7,13 @@
 #include <utility>
 #include <vector>
 
+#include "drone_state.hpp"
 #include "model_math.hpp"
+#include "thread_safe_target_provider.hpp"
 
 namespace
 {
-DroneRuntime toRuntime(const DroneTelemetry& telemetry)
+DroneRuntime runtimeFromTelemetry(const DroneTelemetry& telemetry)
 {
     return {
         telemetry.pos,
@@ -25,23 +27,24 @@ double estimateTargetSwitchDelay(
     const DroneRuntime& drone,
     const AttackPlan& currentPlan)
 {
-    const double acceleration = model::calcDroneAcceleration(
+    double acceleration = model::calcDroneAcceleration(
         config.attackSpeed,
         config.accelPath);
 
     if (drone.state == state_code::TURNING)
     {
-        const double desiredDirection = model::directionToRadians(
+        double desiredDirection = model::directionToRadians(
             drone.position,
             currentPlan.dropPlan.firePoint,
             drone.direction);
-        const double remainingTurn = std::fabs(
-            model::calcTurnDeltaRadians(
-                drone.direction,
-                desiredDirection));
-        return config.angularSpeed > model::EPS
-                   ? remainingTurn / config.angularSpeed
-                   : 0.0;
+        double remainingTurn = std::fabs(model::calcTurnDeltaRadians(
+            drone.direction,
+            desiredDirection));
+        if (config.angularSpeed > model::EPS)
+        {
+            return remainingTurn / config.angularSpeed;
+        }
+        return 0.0;
     }
 
     if (drone.state == state_code::STOPPED ||
@@ -53,202 +56,323 @@ double estimateTargetSwitchDelay(
     return drone.speed / acceleration;
 }
 
-bool isDropWindowReached(const DroneConfig& config,
-                         const AttackPlan& plan,
-                         const DroneRuntime& drone,
-                         double& error)
+SimStep makeStep(
+    const DroneTelemetry& telemetry,
+    int targetIndex,
+    Coord dropPoint,
+    double horizontalDistance,
+    Coord predictedTarget)
 {
-    const Coord aimPoint = model::calcAimPoint(
+    return {
+        telemetry.pos,
+        telemetry.direction,
+        telemetry.state,
+        targetIndex,
+        dropPoint,
+        model::calcAimPoint(
+            telemetry.pos,
+            telemetry.direction,
+            horizontalDistance),
+        predictedTarget,
+        telemetry.timeSecSinceStart};
+}
+
+SimStep makeStep(
+    const DroneRuntime& drone,
+    double timeSecSinceStart,
+    int targetIndex,
+    Coord dropPoint,
+    double horizontalDistance,
+    Coord predictedTarget)
+{
+    return {
+        drone.position,
+        drone.direction,
+        drone.state,
+        targetIndex,
+        dropPoint,
+        model::calcAimPoint(
+            drone.position,
+            drone.direction,
+            horizontalDistance),
+        predictedTarget,
+        timeSecSinceStart};
+}
+
+SimStep simulateOneDynamicStep(
+    const DroneConfig& config,
+    const AttackPlan& plan,
+    DroneRuntime& drone,
+    std::unique_ptr<IDroneState>& state,
+    double timeSecSinceStart)
+{
+    DroneContext context{
+        drone,
+        config,
+        DroneMotion::DYNAMIC,
+        plan.dropPlan.firePoint,
+        0.0};
+    executeDroneState(state, context);
+
+    return makeStep(
+        drone,
+        timeSecSinceStart + config.simTimeStep,
+        plan.targetIndex,
+        plan.dropPlan.firePoint,
+        plan.horizontalDistance,
+        plan.impactTarget);
+}
+
+DronePhysicsResult executePhysicsCommand(
+    DronePhysics& physics,
+    std::unique_ptr<IDroneState>& state,
+    const DroneConfig& config,
+    DroneMotion motion,
+    Coord destination,
+    double desiredDirection)
+{
+    DroneRuntime commandDrone = physics.getRuntime();
+    DroneContext context{
+        commandDrone,
+        config,
+        motion,
+        destination,
+        desiredDirection};
+    executeDroneState(state, context);
+
+    return physics.executeCommandSync({
+        motion,
+        destination,
+        desiredDirection,
+        context.drone,
+        context.completed,
+        nullptr});
+}
+
+SimStep advanceOneDynamicStep(
+    DronePhysics& physics,
+    std::unique_ptr<IDroneState>& state,
+    const DroneConfig& config,
+    const AttackPlan& plan)
+{
+    DronePhysicsResult result = executePhysicsCommand(
+        physics,
+        state,
+        config,
+        DroneMotion::DYNAMIC,
+        plan.dropPlan.firePoint,
+        0.0);
+
+    return makeStep(
+        result.telemetry,
+        plan.targetIndex,
+        plan.dropPlan.firePoint,
+        plan.horizontalDistance,
+        plan.impactTarget);
+}
+
+SimStep advanceTowardStopPoint(
+    DronePhysics& physics,
+    std::unique_ptr<IDroneState>& state,
+    const DroneConfig& config,
+    int targetIndex,
+    Coord destination,
+    Coord displayedDropPoint,
+    double horizontalDistance,
+    Coord predictedTarget)
+{
+    DronePhysicsResult result = executePhysicsCommand(
+        physics,
+        state,
+        config,
+        DroneMotion::STOP_AT_POINT,
+        destination,
+        0.0);
+
+    return makeStep(
+        result.telemetry,
+        targetIndex,
+        displayedDropPoint,
+        horizontalDistance,
+        predictedTarget);
+}
+
+SimStep advanceTurnInPlace(
+    DronePhysics& physics,
+    std::unique_ptr<IDroneState>& state,
+    const DroneConfig& config,
+    const MissionRuntime& mission,
+    bool& aligned)
+{
+    DronePhysicsResult result = executePhysicsCommand(
+        physics,
+        state,
+        config,
+        DroneMotion::TURN_IN_PLACE,
+        {0.0, 0.0},
+        mission.attackDirection);
+    aligned = result.completed;
+
+    return makeStep(
+        result.telemetry,
+        mission.targetIndex,
+        mission.firePoint,
+        mission.horizontalDistance,
+        mission.impactTarget);
+}
+
+SimStep advanceLockedAttackRun(
+    DronePhysics& physics,
+    std::unique_ptr<IDroneState>& state,
+    const DroneConfig& config,
+    const MissionRuntime& mission,
+    bool& reachedFirePoint)
+{
+    DronePhysicsResult result = executePhysicsCommand(
+        physics,
+        state,
+        config,
+        DroneMotion::LOCKED_ATTACK_RUN,
+        mission.firePoint,
+        mission.attackDirection);
+    reachedFirePoint = result.completed;
+
+    return makeStep(
+        result.telemetry,
+        mission.targetIndex,
+        mission.firePoint,
+        mission.horizontalDistance,
+        mission.impactTarget);
+}
+
+bool isDropWindowReached(
+    const DroneConfig& config,
+    const AttackPlan& plan,
+    const DroneRuntime& drone,
+    Coord& currentAimPoint)
+{
+    currentAimPoint = model::calcAimPoint(
         drone.position,
         drone.direction,
         plan.horizontalDistance);
-    error = model::length(aimPoint - plan.impactTarget);
-
-    return drone.state == state_code::MOVING &&
-           error <= config.hitRadius + model::EPS;
+    if (drone.state != state_code::MOVING ||
+        drone.speed < config.attackSpeed - model::EPS)
+    {
+        return false;
+    }
+    return model::length(currentAimPoint - plan.impactTarget) <=
+           config.hitRadius + model::EPS;
 }
 }
 
 MissionProcessor::MissionProcessor(
-    std::shared_ptr<ITargetProvider> targets,
-    std::shared_ptr<DronePhysics> physics,
+    std::unique_ptr<ITargetProvider> targets,
     std::unique_ptr<IBallisticSolver> solver,
-    DroneConfig config,
-    AmmoParams ammo)
+    std::unique_ptr<IConfigLoader> loader,
+    std::shared_ptr<DronePhysics> physics)
     : targets_(std::move(targets)),
-      physics_(std::move(physics)),
       solver_(std::move(solver)),
-      config_(std::move(config)),
-      ammo_(std::move(ammo)),
-      state_(std::make_unique<StateStopped>()),
-      activeDestination_(config_.startPos),
-      activeDesiredDirection_(config_.initialDir)
+      loader_(std::move(loader)),
+      physics_(std::move(physics))
 {
 }
 
+MissionProcessor::~MissionProcessor() = default;
+
 bool MissionProcessor::buildPlanForTarget(
     int targetIndex,
-    const DroneRuntime& drone,
     double currentTime,
+    const DroneRuntime& drone,
     AttackPlan& plan) const
 {
-    if (solver_ == nullptr || targetIndex < 0 ||
-        targetIndex >= static_cast<int>(targetPositionHistory_.size()))
+    if (targets_ == nullptr ||
+        solver_ == nullptr ||
+        loader_ == nullptr ||
+        targetIndex < 0 ||
+        targetIndex >= targets_->getTargetCount())
     {
         return false;
     }
 
-    const auto& history =
-        targetPositionHistory_[static_cast<std::size_t>(targetIndex)];
-    if (history.empty())
+    Coord* targetPath = targets_->getTarget(targetIndex);
+    const int timeSteps = targets_->getTimeSteps();
+    if (targetPath == nullptr || timeSteps <= 0)
     {
         return false;
     }
 
-    BallisticResult ballistic;
-    if (!solver_->solve(config_, ammo_, ballistic))
+    BallisticResult ballistic = {};
+    if (!solver_->solve(
+            loader_->getConfig(),
+            loader_->getAmmoParams(),
+            ballistic))
     {
         return false;
     }
 
     plan = model::buildAttackPlanWithBallistics(
-        config_,
-        history.data(),
-        static_cast<int>(history.size()),
+        loader_->getConfig(),
+        targetPath,
+        timeSteps,
         targetIndex,
         drone,
         currentTime,
         ballistic.fallTime,
         ballistic.horizontalDistance);
-    return true;
+
+    return plan.fallTime > model::EPS &&
+           std::isfinite(plan.horizontalDistance) &&
+           plan.horizontalDistance >= 0.0;
 }
 
-bool MissionProcessor::alignTargetsTo(double currentTime)
-{
-    if (targets_ == nullptr)
-    {
-        return false;
-    }
-
-    while (!stopRequested_.load())
-    {
-        if (!pendingTargetSnapshot_.has_value())
-        {
-            TargetSnapshot snapshot;
-            if (targets_->tryPopSnapshot(snapshot))
-            {
-                pendingTargetSnapshot_ = std::move(snapshot);
-            }
-            else
-            {
-                return !currentTargets_.empty();
-            }
-        }
-
-        if (pendingTargetSnapshot_->timeSecSinceStart <=
-            currentTime + model::EPS)
-        {
-            currentTargets_ = pendingTargetSnapshot_->targets;
-            pendingTargetSnapshot_.reset();
-            continue;
-        }
-
-        return !currentTargets_.empty();
-    }
-
-    return false;
-}
-
-void MissionProcessor::updateTargetMotionHistory(double currentTime)
-{
-    const int count = static_cast<int>(currentTargets_.size());
-    if (count <= 0)
-    {
-        return;
-    }
-
-    const std::size_t size = static_cast<std::size_t>(count);
-    if (targetPositionHistory_.size() != size)
-    {
-        targetPositionHistory_.assign(size, {});
-        targetSegmentVelocities_.assign(size, {});
-        targetSampleIndices_.assign(size, -1);
-    }
-
-    const double dt = std::max(config_.arrayTimeStep, model::EPS);
-    const long long sampleIndex = static_cast<long long>(
-        std::floor(std::max(0.0, currentTime) / dt + model::EPS));
-
-    for (int i = 0; i < count; ++i)
-    {
-        const std::size_t index = static_cast<std::size_t>(i);
-        const Target& target = currentTargets_[index];
-        auto& history = targetPositionHistory_[index];
-
-        if (targetSampleIndices_[index] < 0)
-        {
-            const double sampleTime =
-                static_cast<double>(sampleIndex) * dt;
-            const double elapsed = std::clamp(
-                currentTime - sampleTime,
-                0.0,
-                dt);
-            history.push_back(target.pos - target.velocity * elapsed);
-            targetSampleIndices_[index] = sampleIndex;
-            targetSegmentVelocities_[index] = target.velocity;
-            continue;
-        }
-
-        while (targetSampleIndices_[index] < sampleIndex)
-        {
-            history.push_back(
-                history.back() + targetSegmentVelocities_[index] * dt);
-            ++targetSampleIndices_[index];
-        }
-
-        targetSegmentVelocities_[index] = target.velocity;
-    }
-}
-
-int MissionProcessor::chooseBestTarget(
-    const DroneRuntime& drone,
+int MissionProcessor::chooseBestTargetFromState(
     double currentTime,
+    int currentTargetIndex,
+    const DroneRuntime& drone,
     AttackPlan& bestPlan) const
 {
-    const int count = static_cast<int>(currentTargets_.size());
-    if (count <= 0)
+    if (targets_ == nullptr || loader_ == nullptr)
     {
         return -1;
     }
 
-    std::vector<AttackPlan> plans(static_cast<std::size_t>(count));
-    std::vector<bool> valid(static_cast<std::size_t>(count), false);
-    for (int i = 0; i < count; ++i)
+    int targetCount = targets_->getTargetCount();
+    if (targetCount <= 0)
     {
-        valid[static_cast<std::size_t>(i)] =
-            buildPlanForTarget(i,
-                               drone,
-                               currentTime,
-                               plans[static_cast<std::size_t>(i)]);
+        return -1;
     }
 
-    if (currentTargetIndex_ >= 0 && currentTargetIndex_ < count &&
-        valid[static_cast<std::size_t>(currentTargetIndex_)] &&
+    std::vector<AttackPlan> plans(targetCount);
+    std::vector<bool> validPlans(targetCount, false);
+    for (int i = 0; i < targetCount; ++i)
+    {
+        validPlans[i] = buildPlanForTarget(
+            i,
+            currentTime,
+            drone,
+            plans[i]);
+    }
+
+    if (currentTargetIndex >= 0 &&
+        currentTargetIndex < targetCount &&
+        validPlans[currentTargetIndex] &&
         (drone.state == state_code::DECELERATING ||
          drone.state == state_code::TURNING))
     {
-        bestPlan = plans[static_cast<std::size_t>(currentTargetIndex_)];
-        return currentTargetIndex_;
+        bestPlan = plans[currentTargetIndex];
+        return currentTargetIndex;
     }
 
+    const DroneConfig& config = loader_->getConfig();
     double switchDelay = 0.0;
-    if (currentTargetIndex_ >= 0 && currentTargetIndex_ < count &&
-        valid[static_cast<std::size_t>(currentTargetIndex_)])
+    if (currentTargetIndex >= 0 &&
+        currentTargetIndex < targetCount &&
+        validPlans[currentTargetIndex])
     {
         switchDelay = estimateTargetSwitchDelay(
-            config_,
+            config,
             drone,
-            plans[static_cast<std::size_t>(currentTargetIndex_)]);
+            plans[currentTargetIndex]);
     }
 
     int bestFeasibleIndex = -1;
@@ -257,27 +381,27 @@ int MissionProcessor::chooseBestTarget(
     double fallbackUncertainty = 0.0;
     double fallbackScore = 0.0;
 
-    for (int i = 0; i < count; ++i)
+    for (int i = 0; i < targetCount; ++i)
     {
-        if (!valid[static_cast<std::size_t>(i)])
+        if (!validPlans[i])
         {
             continue;
         }
 
-        const AttackPlan& plan = plans[static_cast<std::size_t>(i)];
-        double score = plan.totalTime;
-        if (currentTargetIndex_ >= 0 && i != currentTargetIndex_)
+        double score = plans[i].totalTime;
+        if (currentTargetIndex >= 0 && i != currentTargetIndex)
         {
             score += switchDelay;
         }
 
-        const bool feasible =
-            plan.predictionUncertainty <= config_.hitRadius + model::EPS;
+        bool feasible =
+            plans[i].predictionUncertainty <=
+            config.hitRadius + model::EPS;
         if (feasible &&
             (bestFeasibleIndex < 0 ||
              score < bestFeasibleScore - model::EPS ||
              (std::fabs(score - bestFeasibleScore) <= model::EPS &&
-              i == currentTargetIndex_)))
+              i == currentTargetIndex)))
         {
             bestFeasibleIndex = i;
             bestFeasibleScore = score;
@@ -286,378 +410,447 @@ int MissionProcessor::chooseBestTarget(
         if (fallbackIndex < 0)
         {
             fallbackIndex = i;
-            fallbackUncertainty = plan.predictionUncertainty;
+            fallbackUncertainty = plans[i].predictionUncertainty;
             fallbackScore = score;
             continue;
         }
 
-        const bool betterFallback =
-            plan.predictionUncertainty <
+        bool betterFallback =
+            plans[i].predictionUncertainty <
             fallbackUncertainty - model::EPS;
-        const bool equalUncertainty =
-            std::fabs(plan.predictionUncertainty -
+        bool equalUncertainty =
+            std::fabs(plans[i].predictionUncertainty -
                       fallbackUncertainty) <= model::EPS;
         if (betterFallback ||
             (equalUncertainty &&
              (score < fallbackScore - model::EPS ||
               (std::fabs(score - fallbackScore) <= model::EPS &&
-               i == currentTargetIndex_))))
+               i == currentTargetIndex))))
         {
             fallbackIndex = i;
-            fallbackUncertainty = plan.predictionUncertainty;
+            fallbackUncertainty = plans[i].predictionUncertainty;
             fallbackScore = score;
         }
     }
 
-    const int bestIndex = bestFeasibleIndex >= 0
-                              ? bestFeasibleIndex
-                              : fallbackIndex;
+    int bestIndex = bestFeasibleIndex >= 0
+                        ? bestFeasibleIndex
+                        : fallbackIndex;
     if (bestIndex >= 0)
     {
-        bestPlan = plans[static_cast<std::size_t>(bestIndex)];
+        bestPlan = plans[bestIndex];
     }
+
     return bestIndex;
 }
 
-void MissionProcessor::initializeMission(
-    const DroneRuntime& drone,
-    double currentTime)
+bool MissionProcessor::appendStep(const SimStep& step)
 {
-    activePlan_ = {};
-    const int bestIndex = chooseBestTarget(
-        drone,
-        currentTime,
-        activePlan_);
-    if (bestIndex < 0)
-    {
-        finished_ = true;
-        return;
-    }
-
-    currentTargetIndex_ = bestIndex;
-    mission_.targetIndex = bestIndex;
-    mission_.phase = AttackPhase::PURSUIT;
-    mission_.maneuverPoint = activePlan_.dropPlan.maneuverPoint;
-    mission_.firePoint = activePlan_.dropPlan.firePoint;
-    mission_.impactTarget = activePlan_.impactTarget;
-    mission_.horizontalDistance = activePlan_.horizontalDistance;
-    mission_.attackDirection = model::directionToRadians(
-        activePlan_.dropPlan.needManeuver
-            ? activePlan_.dropPlan.maneuverPoint
-            : drone.position,
-        activePlan_.dropPlan.firePoint,
-        drone.direction);
-    initialized_ = true;
-}
-
-void MissionProcessor::advanceStateFromTelemetry(
-    const DroneTelemetry& telemetry)
-{
-    DroneRuntime snapshot = toRuntime(telemetry);
-    if (!previousTelemetryReady_)
-    {
-        previousDroneSpeed_ = snapshot.speed;
-        previousTelemetryReady_ = true;
-    }
-
-    DroneContext context{
-        snapshot,
-        config_,
-        activeMotion_,
-        activeDestination_,
-        activeDesiredDirection_};
-    context.previousSpeed = previousDroneSpeed_;
-    context.completed =
-        telemetry.commandCompleted &&
-        telemetry.completedCommandId == activeCommandId_;
-    prepareDroneStateContext(context);
-    executeDroneState(state_, context);
-    previousDroneSpeed_ = snapshot.speed;
-}
-
-std::uint64_t MissionProcessor::sendCommand(
-    DroneMotion motion,
-    Coord destination,
-    double desiredDirection)
-{
-    if (physics_ == nullptr)
-    {
-        return 0;
-    }
-
-    const std::uint64_t commandId = nextCommandId_++;
-    activeCommandId_ = commandId;
-    activeMotion_ = motion;
-    activeDestination_ = destination;
-    activeDesiredDirection_ = desiredDirection;
-
-    physics_->submitCommand({
-        commandId,
-        state_->code(),
-        config_.angularSpeed,
-        motion,
-        destination,
-        desiredDirection});
-    return commandId;
-}
-
-void MissionProcessor::refreshCommand(
-    std::uint64_t commandId,
-    DroneMotion motion,
-    Coord destination,
-    double desiredDirection)
-{
-    if (physics_ == nullptr || commandId == 0)
-    {
-        return;
-    }
-
-    activeCommandId_ = commandId;
-    activeMotion_ = motion;
-    activeDestination_ = destination;
-    activeDesiredDirection_ = desiredDirection;
-
-    physics_->submitCommand({
-        commandId,
-        state_->code(),
-        config_.angularSpeed,
-        motion,
-        destination,
-        desiredDirection});
-}
-
-void MissionProcessor::appendStep(
-    const DroneTelemetry& telemetry,
-    const AttackPlan& plan)
-{
-    const SimStep step{
-        telemetry.pos,
-        telemetry.direction,
-        telemetry.state,
-        plan.targetIndex,
-        plan.dropPlan.firePoint,
-        model::calcAimPoint(telemetry.pos,
-                            telemetry.direction,
-                            plan.horizontalDistance),
-        plan.impactTarget,
-        telemetry.timeSecSinceStart};
-
     std::lock_guard<std::mutex> lock(stepsMutex_);
-    if (steps_.size() < static_cast<std::size_t>(MAX_STEPS))
-    {
-        steps_.push_back(step);
-    }
-    else
+    if (stepCount_ >= MAX_STEPS)
     {
         finished_ = true;
+        return false;
     }
+    steps_.push_back(step);
+    ++stepCount_;
+    return true;
 }
 
-void MissionProcessor::processStep(const DroneTelemetry& telemetry)
+void MissionProcessor::initializeRuntime()
 {
-    const double currentTime = telemetry.timeSecSinceStart;
-    if (!alignTargetsTo(currentTime))
+    initialized_ = false;
+    finished_ = true;
+    stepCount_ = 0;
+    steps_.clear();
+    currentTargetIndex_ = -1;
+    mission_ = {};
+
+    if (targets_ == nullptr || solver_ == nullptr || loader_ == nullptr ||
+        physics_ == nullptr)
     {
         return;
     }
-    updateTargetMotionHistory(currentTime);
-    advanceStateFromTelemetry(telemetry);
 
-    const DroneRuntime drone = toRuntime(telemetry);
+    const DroneConfig& config = loader_->getConfig();
+    physics_->configure(config);
+    physics_->reset(config.startPos, config.initialDir);
+    state_ = std::make_unique<StateStopped>();
 
-    if (!initialized_)
+    if (auto* threadSafeTargets =
+            dynamic_cast<ThreadSafeTargetProvider*>(targets_.get()))
     {
-        initializeMission(drone, currentTime);
-        if (!initialized_)
-        {
-            return;
-        }
+        threadSafeTargets->setTiming(config.arrayTimeStep, config.timeScale);
     }
 
-    if (mission_.phase == AttackPhase::PURSUIT)
+    DroneRuntime drone = physics_->getRuntime();
+    AttackPlan initialPlan = {};
+    int initialBestIndex = chooseBestTargetFromState(
+        0.0,
+        -1,
+        drone,
+        initialPlan);
+    if (initialBestIndex < 0)
     {
-        AttackPlan plan{};
-        int bestIndex = -1;
-        if (dropCandidateActive_)
-        {
-            bestIndex = dropCandidateTargetIndex_;
-            if (!buildPlanForTarget(
-                    bestIndex,
-                    drone,
-                    currentTime,
-                    plan))
-            {
-                finished_ = true;
-                return;
-            }
-        }
-        else
-        {
-            bestIndex = chooseBestTarget(
-                drone,
-                currentTime,
-                plan);
-        }
+        return;
+    }
 
-        if (bestIndex < 0)
+    Coord initialWaypoint = initialPlan.dropPlan.needManeuver
+                                ? initialPlan.dropPlan.maneuverPoint
+                                : initialPlan.dropPlan.firePoint;
+    double initialDesiredDirection = model::directionToRadians(
+        drone.position,
+        initialWaypoint,
+        drone.direction);
+    if (std::fabs(model::calcTurnDeltaRadians(
+            drone.direction,
+            initialDesiredDirection)) <=
+        config.turnThreshold + model::EPS)
+    {
+        physics_->setDirection(initialDesiredDirection);
+        drone.direction = initialDesiredDirection;
+    }
+
+    mission_ = {
+        initialPlan.targetIndex,
+        AttackPhase::PURSUIT,
+        initialPlan.dropPlan.maneuverPoint,
+        initialPlan.dropPlan.firePoint,
+        initialPlan.predictedTarget,
+        initialDesiredDirection,
+        initialPlan.horizontalDistance};
+
+    currentTargetIndex_ = initialPlan.targetIndex;
+    finished_ = false;
+    initialized_ = true;
+
+    appendStep({
+        drone.position,
+        drone.direction,
+        drone.state,
+        initialPlan.targetIndex,
+        initialPlan.dropPlan.firePoint,
+        model::calcAimPoint(
+            drone.position,
+            drone.direction,
+            initialPlan.horizontalDistance),
+        initialPlan.dropPlan.needManeuver
+            ? initialPlan.predictedTarget
+            : initialPlan.impactTarget,
+        0.0});
+}
+
+int MissionProcessor::init()
+{
+    if (targets_ == nullptr || solver_ == nullptr || loader_ == nullptr ||
+        physics_ == nullptr)
+    {
+        return 1;
+    }
+    if (targets_->load() != 0)
+    {
+        return 1;
+    }
+    if (loader_->load() != 0)
+    {
+        return 1;
+    }
+
+    initializeRuntime();
+    return initialized_ ? 0 : 1;
+}
+
+bool MissionProcessor::hasNext() const
+{
+    return initialized_ && !finished_ && stepCount_ < MAX_STEPS &&
+           !stopRequested_.load();
+}
+
+void MissionProcessor::step()
+{
+    if (!hasNext())
+    {
+        return;
+    }
+
+    const DroneConfig& config = loader_->getConfig();
+    double currentTime =
+        (stepCount_ - 1) * config.simTimeStep;
+    DroneRuntime drone = physics_->getRuntime();
+
+    if (mission_.phase == AttackPhase::ATTACK_RUN)
+    {
+        bool reachedFirePoint = false;
+        SimStep next = advanceLockedAttackRun(
+            *physics_,
+            state_,
+            config,
+            mission_,
+            reachedFirePoint);
+        appendStep(next);
+        if (reachedFirePoint)
         {
             finished_ = true;
-            return;
         }
-
-        currentTargetIndex_ = bestIndex;
-        activePlan_ = plan;
-        mission_.targetIndex = bestIndex;
-        mission_.firePoint = plan.dropPlan.firePoint;
-        mission_.impactTarget = plan.impactTarget;
-        mission_.horizontalDistance = plan.horizontalDistance;
-
-        if (dropCandidateActive_)
-        {
-            double currentError = 0.0;
-            const bool stillValid = isDropWindowReached(
-                config_,
-                plan,
-                drone,
-                currentError);
-
-            if (!stillValid ||
-                currentError >= dropCandidateError_ - model::EPS)
-            {
-                finished_ = true;
-                return;
-            }
-
-            dropCandidateError_ = currentError;
-            ++dropCandidateImprovements_;
-            appendStep(telemetry, activePlan_);
-
-            if (dropCandidateImprovements_ >= 2)
-            {
-                finished_ = true;
-                return;
-            }
-
-            const double desiredDirection = model::directionToRadians(
-                drone.position,
-                plan.dropPlan.firePoint,
-                drone.direction);
-            sendCommand(DroneMotion::DYNAMIC,
-                        plan.dropPlan.firePoint,
-                        desiredDirection);
-            return;
-        }
-
-        double currentError = 0.0;
-        if (isDropWindowReached(
-                config_,
-                plan,
-                drone,
-                currentError))
-        {
-            dropCandidateActive_ = true;
-            dropCandidateTargetIndex_ = bestIndex;
-            dropCandidateError_ = currentError;
-            dropCandidateImprovements_ = 0;
-            appendStep(telemetry, activePlan_);
-
-            const double desiredDirection = model::directionToRadians(
-                drone.position,
-                plan.dropPlan.firePoint,
-                drone.direction);
-            sendCommand(DroneMotion::DYNAMIC,
-                        plan.dropPlan.firePoint,
-                        desiredDirection);
-            return;
-        }
-
-        if (plan.dropPlan.needManeuver)
-        {
-            mission_.phase = AttackPhase::TO_MANEUVER;
-            mission_.maneuverPoint = plan.dropPlan.maneuverPoint;
-            mission_.attackDirection = model::directionToRadians(
-                mission_.maneuverPoint,
-                mission_.firePoint,
-                drone.direction);
-            phaseCommandId_ = sendCommand(
-                DroneMotion::STOP_AT_POINT,
-                mission_.maneuverPoint,
-                mission_.attackDirection);
-            appendStep(telemetry, activePlan_);
-            return;
-        }
-
-        const double desiredDirection = model::directionToRadians(
-            drone.position,
-            plan.dropPlan.firePoint,
-            drone.direction);
-        sendCommand(DroneMotion::DYNAMIC,
-                    plan.dropPlan.firePoint,
-                    desiredDirection);
-        appendStep(telemetry, activePlan_);
-        return;
-    }
-
-    if (mission_.phase == AttackPhase::TO_MANEUVER)
-    {
-        if (telemetry.commandCompleted &&
-            telemetry.completedCommandId == phaseCommandId_)
-        {
-            mission_.phase = AttackPhase::ALIGN_ATTACK;
-            phaseCommandId_ = sendCommand(
-                DroneMotion::TURN_IN_PLACE,
-                telemetry.pos,
-                mission_.attackDirection);
-        }
-        else
-        {
-            refreshCommand(
-                phaseCommandId_,
-                DroneMotion::STOP_AT_POINT,
-                mission_.maneuverPoint,
-                mission_.attackDirection);
-        }
-        appendStep(telemetry, activePlan_);
         return;
     }
 
     if (mission_.phase == AttackPhase::ALIGN_ATTACK)
     {
-        if (telemetry.commandCompleted &&
-            telemetry.completedCommandId == phaseCommandId_)
+        bool aligned = false;
+        SimStep next = advanceTurnInPlace(
+            *physics_,
+            state_,
+            config,
+            mission_,
+            aligned);
+        appendStep(next);
+        if (aligned)
         {
             mission_.phase = AttackPhase::ATTACK_RUN;
-            phaseCommandId_ = sendCommand(
-                DroneMotion::LOCKED_ATTACK_RUN,
-                mission_.firePoint,
-                mission_.attackDirection);
         }
-        else
-        {
-            refreshCommand(
-                phaseCommandId_,
-                DroneMotion::TURN_IN_PLACE,
-                telemetry.pos,
-                mission_.attackDirection);
-        }
-        appendStep(telemetry, activePlan_);
         return;
     }
 
-    if (telemetry.commandCompleted &&
-        telemetry.completedCommandId == phaseCommandId_)
+    if (mission_.phase == AttackPhase::TO_MANEUVER)
+    {
+        SimStep next = advanceTowardStopPoint(
+            *physics_,
+            state_,
+            config,
+            mission_.targetIndex,
+            mission_.maneuverPoint,
+            mission_.firePoint,
+            mission_.horizontalDistance,
+            mission_.impactTarget);
+        appendStep(next);
+
+        drone = runtimeFromTelemetry(physics_->getTelemetry());
+        if (drone.speed <= model::EPS &&
+            model::length(
+                drone.position - mission_.maneuverPoint) <= model::EPS)
+        {
+            mission_.phase = AttackPhase::ALIGN_ATTACK;
+        }
+        return;
+    }
+
+    AttackPlan plan = {};
+    int bestIndex = chooseBestTargetFromState(
+        currentTime,
+        currentTargetIndex_,
+        drone,
+        plan);
+    if (bestIndex < 0)
     {
         finished_ = true;
+        return;
     }
-    else
+    currentTargetIndex_ = bestIndex;
+
+    if (plan.dropPlan.needManeuver)
     {
-        refreshCommand(
-            phaseCommandId_,
-            DroneMotion::LOCKED_ATTACK_RUN,
+        mission_.targetIndex = plan.targetIndex;
+        mission_.phase = AttackPhase::TO_MANEUVER;
+        mission_.maneuverPoint = plan.dropPlan.maneuverPoint;
+        mission_.firePoint = plan.dropPlan.firePoint;
+        mission_.impactTarget = plan.predictedTarget;
+        mission_.attackDirection = model::directionToRadians(
+            mission_.maneuverPoint,
             mission_.firePoint,
-            mission_.attackDirection);
+            drone.direction);
+        mission_.horizontalDistance = plan.horizontalDistance;
+
+        appendStep(advanceTowardStopPoint(
+            *physics_,
+            state_,
+            config,
+            mission_.targetIndex,
+            mission_.maneuverPoint,
+            mission_.firePoint,
+            mission_.horizontalDistance,
+            mission_.impactTarget));
+        return;
     }
-    appendStep(telemetry, activePlan_);
+
+    Coord currentAimPoint = {};
+    if (isDropWindowReached(
+            config,
+            plan,
+            drone,
+            currentAimPoint))
+    {
+        double currentError = model::length(
+            currentAimPoint - plan.impactTarget);
+        DroneRuntime nextDrone = drone;
+        auto nextState = state_->clone();
+        double currentTelemetryTime = physics_->getTelemetry().timeSecSinceStart;
+        SimStep nextStep = simulateOneDynamicStep(
+            config,
+            plan,
+            nextDrone,
+            nextState,
+            currentTelemetryTime);
+
+        Coord* targetPath = targets_->getTarget(plan.targetIndex);
+        int timeSteps = targets_->getTimeSteps();
+        model::ObservedTargetState observedNow =
+            model::observeTargetFromPast(
+                targetPath,
+                timeSteps,
+                currentTime,
+                config.arrayTimeStep);
+        Coord predictionResidual = model::estimatePredictionResidual(
+            targetPath,
+            timeSteps,
+            currentTime,
+            config.arrayTimeStep,
+            plan.fallTime);
+        Coord nextImpactTarget = model::predictObservedTarget(
+                                     observedNow,
+                                     plan.fallTime + config.simTimeStep) +
+                                 predictionResidual;
+        Coord nextAimPoint = model::calcAimPoint(
+            nextDrone.position,
+            nextDrone.direction,
+            plan.horizontalDistance);
+        double nextError = model::length(
+            nextAimPoint - nextImpactTarget);
+        bool velocityIsObserved =
+            currentTime + model::EPS >= config.arrayTimeStep;
+        bool nextStepIsBetter =
+            velocityIsObserved &&
+            nextDrone.state == state_code::MOVING &&
+            nextDrone.speed >= config.attackSpeed - model::EPS &&
+            nextError < currentError - model::EPS &&
+            nextError <= config.hitRadius + model::EPS;
+
+        if (nextStepIsBetter && stepCount_ < MAX_STEPS)
+        {
+            double nextTimeToDrop = 0.0;
+            DropPlan nextDropPlan = model::calculateDynamicDropPlan(
+                config,
+                nextDrone,
+                nextImpactTarget,
+                plan.horizontalDistance,
+                nextTimeToDrop);
+            (void)nextTimeToDrop;
+
+            bool useSecondStep = false;
+            DroneRuntime secondDrone = nextDrone;
+            auto secondState = nextState->clone();
+            SimStep secondStep = nextStep;
+            Coord secondImpactTarget = nextImpactTarget;
+            Coord secondAimPoint = nextAimPoint;
+            DropPlan secondDropPlan = nextDropPlan;
+
+            if (stepCount_ + 1 < MAX_STEPS)
+            {
+                AttackPlan secondPlan = plan;
+                secondPlan.dropPlan = nextDropPlan;
+                secondPlan.impactTarget = nextImpactTarget;
+
+                SimStep candidateSecondStep = simulateOneDynamicStep(
+                    config,
+                    secondPlan,
+                    secondDrone,
+                    secondState,
+                    currentTelemetryTime + config.simTimeStep);
+                Coord candidateSecondImpactTarget =
+                    model::predictObservedTarget(
+                        observedNow,
+                        plan.fallTime +
+                            2.0 * config.simTimeStep) +
+                    predictionResidual;
+                Coord candidateSecondAimPoint = model::calcAimPoint(
+                    secondDrone.position,
+                    secondDrone.direction,
+                    plan.horizontalDistance);
+                double secondError = model::length(
+                    candidateSecondAimPoint -
+                    candidateSecondImpactTarget);
+
+                double secondTimeToDrop = 0.0;
+                DropPlan candidateSecondDropPlan =
+                    model::calculateDynamicDropPlan(
+                        config,
+                        secondDrone,
+                        candidateSecondImpactTarget,
+                        plan.horizontalDistance,
+                        secondTimeToDrop);
+                (void)secondTimeToDrop;
+
+                if (!candidateSecondDropPlan.needManeuver &&
+                    secondDrone.state == state_code::MOVING &&
+                    secondDrone.speed >=
+                        config.attackSpeed - model::EPS &&
+                    secondError < nextError - model::EPS &&
+                    secondError <= config.hitRadius + model::EPS)
+                {
+                    useSecondStep = true;
+                    secondStep = candidateSecondStep;
+                    secondImpactTarget = candidateSecondImpactTarget;
+                    secondAimPoint = candidateSecondAimPoint;
+                    secondDropPlan = candidateSecondDropPlan;
+                }
+            }
+
+            nextStep = advanceOneDynamicStep(*physics_, state_, config, plan);
+            nextStep.targetIndex = plan.targetIndex;
+            nextStep.dropPoint = nextDropPlan.firePoint;
+            nextStep.aimPoint = nextAimPoint;
+            nextStep.predictedTarget = nextImpactTarget;
+            appendStep(nextStep);
+
+            if (useSecondStep)
+            {
+                AttackPlan secondPlan = plan;
+                secondPlan.dropPlan = nextDropPlan;
+                secondPlan.impactTarget = nextImpactTarget;
+                secondStep = advanceOneDynamicStep(*physics_, state_, config, secondPlan);
+                secondStep.targetIndex = plan.targetIndex;
+                secondStep.dropPoint = secondDropPlan.firePoint;
+                secondStep.aimPoint = secondAimPoint;
+                secondStep.predictedTarget = secondImpactTarget;
+                appendStep(secondStep);
+            }
+        }
+        else if (stepCount_ > 0)
+        {
+            std::lock_guard<std::mutex> lock(stepsMutex_);
+            steps_[static_cast<std::size_t>(stepCount_ - 1)].targetIndex =
+                plan.targetIndex;
+            steps_[static_cast<std::size_t>(stepCount_ - 1)].dropPoint =
+                plan.dropPlan.firePoint;
+            steps_[static_cast<std::size_t>(stepCount_ - 1)].aimPoint =
+                currentAimPoint;
+            steps_[static_cast<std::size_t>(stepCount_ - 1)].predictedTarget =
+                plan.impactTarget;
+        }
+
+        finished_ = true;
+        return;
+    }
+
+    appendStep(advanceOneDynamicStep(
+        *physics_,
+        state_,
+        config,
+        plan));
+}
+
+void MissionProcessor::reset()
+{
+    initializeRuntime();
+}
+
+void MissionProcessor::changeSolver(
+    std::unique_ptr<IBallisticSolver> solver)
+{
+    if (solver != nullptr)
+    {
+        solver_ = std::move(solver);
+    }
 }
 
 void MissionProcessor::run()
@@ -668,17 +861,15 @@ void MissionProcessor::run()
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
 
-    const double dt = std::max(config_.simTimeStep, 0.001);
-    const double scale = std::max(config_.timeScale, 0.001);
-    const auto period = std::chrono::duration<double>(dt / scale);
-    auto nextTick = std::chrono::steady_clock::now();
-
-    while (!stopRequested_.load() && !finished_)
+    while (hasNext())
     {
-        processStep(physics_->getTelemetry());
-        nextTick += std::chrono::duration_cast<
-            std::chrono::steady_clock::duration>(period);
-        std::this_thread::sleep_until(nextTick);
+        step();
+        const DroneConfig& config = loader_->getConfig();
+        const double scale = config.timeScale > model::EPS
+                                 ? config.timeScale
+                                 : 1000.0;
+        std::this_thread::sleep_for(
+            std::chrono::duration<double>(config.simTimeStep / scale));
     }
 }
 
@@ -704,6 +895,5 @@ const SimStep* MissionProcessor::getSteps() const
 
 int MissionProcessor::getStepCount() const
 {
-    std::lock_guard<std::mutex> lock(stepsMutex_);
-    return static_cast<int>(steps_.size());
+    return stepCount_;
 }

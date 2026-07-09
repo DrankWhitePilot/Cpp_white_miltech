@@ -3,7 +3,7 @@
 #include <string>
 
 #include "ballistic_table.hpp"
-#include "i_ballistic_solver.hpp"
+#include "interfaces.hpp"
 
 class TableSolver final : public IBallisticSolver
 {

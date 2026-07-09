@@ -85,54 +85,43 @@ void performDynamicMotion(DroneContext& ctx)
     const Coord oldVelocity =
         model::directionVector(ctx.drone.direction) *
         ctx.drone.speed;
+    const Coord desiredVelocity =
+        model::directionVector(desiredDirection) *
+        ctx.config.attackSpeed;
+    const Coord deltaVelocity = desiredVelocity - oldVelocity;
+    const double deltaVelocityLength = model::length(deltaVelocity);
     const double maxDeltaVelocity =
         acceleration > model::EPS ? acceleration * dt : 0.0;
-    const double maxTurn = ctx.config.angularSpeed * dt;
 
-    double appliedTurn = std::clamp(
-        turnDelta,
-        -maxTurn,
-        maxTurn);
-    if (ctx.drone.speed > model::EPS &&
-        maxDeltaVelocity < ctx.drone.speed)
+    Coord newVelocity = oldVelocity;
+    if (deltaVelocityLength > model::EPS &&
+        maxDeltaVelocity > model::EPS)
     {
-        const double accelerationLimitedTurn = std::asin(
-            std::clamp(
-                maxDeltaVelocity / ctx.drone.speed,
-                0.0,
-                1.0));
-        appliedTurn = std::clamp(
-            appliedTurn,
-            -accelerationLimitedTurn,
-            accelerationLimitedTurn);
+        if (deltaVelocityLength <= maxDeltaVelocity + model::EPS)
+        {
+            newVelocity = desiredVelocity;
+        }
+        else
+        {
+            newVelocity =
+                oldVelocity +
+                deltaVelocity *
+                    (maxDeltaVelocity / deltaVelocityLength);
+        }
     }
 
-    const double newDirection = model::normalizeAngleTwoPi(
-        ctx.drone.direction + appliedTurn);
-    double newSpeed = ctx.drone.speed;
-    if (maxDeltaVelocity > model::EPS)
-    {
-        const double lateralVelocity =
-            ctx.drone.speed * std::sin(appliedTurn);
-        const double remainingAccelerationSquared = std::max(
-            0.0,
-            maxDeltaVelocity * maxDeltaVelocity -
-                lateralVelocity * lateralVelocity);
-        const double maximumSpeed =
-            ctx.drone.speed * std::cos(appliedTurn) +
-            std::sqrt(remainingAccelerationSquared);
-        newSpeed = std::min(
-            ctx.config.attackSpeed,
-            maximumSpeed);
-    }
-
-    const Coord newVelocity =
-        model::directionVector(newDirection) * newSpeed;
+    const double newSpeed = model::length(newVelocity);
     const Coord averageVelocity =
         (oldVelocity + newVelocity) * 0.5;
     ctx.drone.position =
         ctx.drone.position + averageVelocity * dt;
-    ctx.drone.direction = newDirection;
+
+    if (newSpeed > model::EPS)
+    {
+        ctx.drone.direction = model::normalizeAngleTwoPi(
+            std::atan2(newVelocity.y, newVelocity.x));
+    }
+
     ctx.drone.speed = newSpeed;
 }
 
@@ -361,68 +350,9 @@ void performMotion(DroneContext& ctx)
 }
 }
 
-void integrateDroneMotion(DroneContext& ctx)
-{
-    performMotion(ctx);
-}
-
-void prepareDroneStateContext(DroneContext& ctx)
-{
-    ctx.turnRequired = false;
-    ctx.turnCompleted = false;
-
-    if (ctx.motion == DroneMotion::DYNAMIC)
-    {
-        const double desiredDirection = model::directionToRadians(
-            ctx.drone.position,
-            ctx.destination,
-            ctx.drone.direction);
-        const double turnDelta = model::calcTurnDeltaRadians(
-            ctx.drone.direction,
-            desiredDirection);
-        ctx.turnRequired =
-            std::fabs(turnDelta) >
-            ctx.config.turnThreshold + model::EPS;
-        ctx.turnCompleted = !ctx.turnRequired;
-        return;
-    }
-
-    if (ctx.motion == DroneMotion::STOP_AT_POINT)
-    {
-        const double remaining = model::length(
-            ctx.destination - ctx.drone.position);
-        if (remaining <= model::EPS && isStopped(ctx))
-        {
-            ctx.completed = true;
-        }
-
-        const double desiredDirection = model::directionToRadians(
-            ctx.drone.position,
-            ctx.destination,
-            ctx.drone.direction);
-        const double turnDelta = model::calcTurnDeltaRadians(
-            ctx.drone.direction,
-            desiredDirection);
-        ctx.turnRequired = std::fabs(turnDelta) > model::EPS;
-        ctx.turnCompleted = !ctx.turnRequired;
-        return;
-    }
-
-    if (ctx.motion == DroneMotion::TURN_IN_PLACE)
-    {
-        const double turnDelta = model::calcTurnDeltaRadians(
-            ctx.drone.direction,
-            ctx.desiredDirection);
-        ctx.turnRequired = std::fabs(turnDelta) > model::EPS;
-        ctx.turnCompleted = ctx.completed || !ctx.turnRequired;
-        return;
-    }
-
-    ctx.turnCompleted = true;
-}
-
 std::unique_ptr<IDroneState> StateStopped::execute(DroneContext& ctx)
 {
+    performMotion(ctx);
     if (ctx.turnRequired)
     {
         return std::make_unique<StateTurning>();
@@ -452,6 +382,7 @@ int StateStopped::code() const
 std::unique_ptr<IDroneState> StateAccelerating::execute(
     DroneContext& ctx)
 {
+    performMotion(ctx);
     if (ctx.turnRequired || speedDecreased(ctx))
     {
         return std::make_unique<StateDecelerating>();
@@ -487,15 +418,7 @@ int StateAccelerating::code() const
 std::unique_ptr<IDroneState> StateDecelerating::execute(
     DroneContext& ctx)
 {
-    if (ctx.motion == DroneMotion::DYNAMIC && ctx.turnRequired)
-    {
-        if (ctx.previousSpeed > model::EPS)
-        {
-            return nullptr;
-        }
-        return std::make_unique<StateTurning>();
-    }
-
+    performMotion(ctx);
     if (isStopped(ctx))
     {
         return std::make_unique<StateStopped>();
@@ -528,6 +451,7 @@ int StateDecelerating::code() const
 
 std::unique_ptr<IDroneState> StateTurning::execute(DroneContext& ctx)
 {
+    performMotion(ctx);
     if (ctx.turnRequired && !ctx.turnCompleted)
     {
         return nullptr;
@@ -560,6 +484,7 @@ int StateTurning::code() const
 
 std::unique_ptr<IDroneState> StateMoving::execute(DroneContext& ctx)
 {
+    performMotion(ctx);
     if (ctx.turnRequired || speedDecreased(ctx))
     {
         return std::make_unique<StateDecelerating>();
@@ -599,10 +524,19 @@ void executeDroneState(
         state = std::make_unique<StateStopped>();
     }
 
+    const bool wasDecelerating =
+        state->code() == state_code::DECELERATING;
     auto next = state->execute(ctx);
     if (next)
     {
         state = std::move(next);
     }
-    ctx.drone.state = state->code();
+    const bool completedDeceleration =
+        wasDecelerating &&
+        ctx.previousSpeed > model::EPS &&
+        ctx.drone.speed <= model::EPS &&
+        state->code() == state_code::STOPPED;
+    ctx.drone.state = completedDeceleration
+                          ? state_code::DECELERATING
+                          : state->code();
 }

@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <chrono>
-#include <cmath>
 #include <fstream>
 #include <iostream>
 #include <thread>
@@ -13,156 +12,140 @@
 
 using json = nlohmann::json;
 
-ThreadSafeTargetProvider::ThreadSafeTargetProvider(
-    std::string source,
-    double arrayTimeStep,
-    double targetTimeStep,
-    double timeScale)
-    : source_(std::move(source)),
-      arrayTimeStep_(arrayTimeStep),
-      targetTimeStep_(targetTimeStep),
-      timeScale_(timeScale)
+ThreadSafeTargetProvider::ThreadSafeTargetProvider(std::string source)
+    : source_(std::move(source))
 {
+}
+
+ThreadSafeTargetProvider::~ThreadSafeTargetProvider()
+{
+    stop();
 }
 
 int ThreadSafeTargetProvider::load()
 {
-    std::ifstream input(source_);
-    if (!input.is_open())
+    std::ifstream fin(source_);
+    if (!fin.is_open())
     {
-        std::cerr << "NO TARGET FILE\n";
+        std::cout << "NO TARGET FILE" << std::endl;
         return 1;
     }
 
-    json data;
-    input >> data;
+    json j;
+    fin >> j;
 
-    const int targetCount = data.value("targetCount", 0);
-    if (targetCount <= 0 || !data.contains("targets"))
+    std::vector<std::vector<Coord>> loadedPaths;
+    std::vector<Coord*> loadedPointers;
+    std::vector<Target> loadedCurrent;
+
+    int loadedTargetCount = j["targetCount"];
+    int loadedTimeSteps = 0;
+
+    if (j.contains("timeSteps"))
+        loadedTimeSteps = j["timeSteps"];
+    else if (j.contains("targetSteps"))
+        loadedTimeSteps = j["targetSteps"];
+    else if (loadedTargetCount > 0 && j["targets"][0].contains("positions"))
+        loadedTimeSteps = static_cast<int>(j["targets"][0]["positions"].size());
+    else if (loadedTargetCount > 0 && j["targets"][0].contains("points"))
+        loadedTimeSteps = static_cast<int>(j["targets"][0]["points"].size());
+    else
     {
+        std::cout << "NO TARGET STEPS" << std::endl;
         return 1;
     }
 
-    std::vector<std::vector<Coord>> loaded;
-    loaded.reserve(static_cast<std::size_t>(targetCount));
-
-    for (int i = 0; i < targetCount; ++i)
+    loadedPaths.reserve(loadedTargetCount);
+    for (int i = 0; i < loadedTargetCount; ++i)
     {
-        const json& item = data["targets"][i];
-        const json* points = nullptr;
-        if (item.contains("positions"))
+        const json* arr = nullptr;
+        if (j["targets"][i].contains("positions"))
+            arr = &j["targets"][i]["positions"];
+        else if (j["targets"][i].contains("points"))
+            arr = &j["targets"][i]["points"];
+        else
         {
-            points = &item["positions"];
-        }
-        else if (item.contains("points"))
-        {
-            points = &item["points"];
-        }
-
-        if (points == nullptr || !points->is_array() || points->empty())
-        {
+            std::cout << "NO TARGET POINT ARRAY" << std::endl;
             return 1;
         }
 
-        std::vector<Coord> trajectory;
-        trajectory.reserve(points->size());
-        for (const auto& point : *points)
+        if (!arr->is_array() || static_cast<int>(arr->size()) < loadedTimeSteps)
         {
-            trajectory.push_back({point["x"].get<double>(),
-                                  point["y"].get<double>()});
+            std::cout << "BAD TARGET ARRAY SIZE" << std::endl;
+            return 1;
         }
-        loaded.push_back(std::move(trajectory));
+
+        std::vector<Coord> target;
+        target.reserve(loadedTimeSteps);
+        for (int k = 0; k < loadedTimeSteps; ++k)
+        {
+            target.push_back({
+                (*arr)[k]["x"].get<double>(),
+                (*arr)[k]["y"].get<double>()});
+        }
+        loadedPaths.push_back(std::move(target));
     }
 
-    std::vector<Target> snapshots;
-    snapshots.reserve(loaded.size());
-    for (const auto& trajectory : loaded)
+    loadedPointers.reserve(loadedPaths.size());
+    for (auto& path : loadedPaths)
     {
-        Coord velocity{0.0, 0.0};
-        if (trajectory.size() > 1 && arrayTimeStep_ > model::EPS)
-        {
-            velocity = (trajectory[1] - trajectory[0]) / arrayTimeStep_;
-        }
-        snapshots.push_back({trajectory.front(), velocity});
+        loadedPointers.push_back(path.data());
     }
 
+    loadedCurrent.resize(static_cast<std::size_t>(loadedTargetCount));
     {
-        std::lock_guard<std::mutex> lock(targetsMutex_);
-        trajectories_ = std::move(loaded);
-        targets_ = std::move(snapshots);
+        std::lock_guard<std::mutex> lock(mutex_);
+        paths_ = std::move(loadedPaths);
+        targetPointers_.clear();
+        targetPointers_.reserve(paths_.size());
+        for (auto& path : paths_)
+        {
+            targetPointers_.push_back(path.data());
+        }
+        currentTargets_ = std::move(loadedCurrent);
+        targetCount_ = loadedTargetCount;
+        timeSteps_ = loadedTimeSteps;
+        updateCurrentTargetsLocked(0);
     }
+
     return 0;
 }
 
-void ThreadSafeTargetProvider::run()
+int ThreadSafeTargetProvider::getTargetCount() const
 {
-    ready_.store(true);
-    while (!stopRequested_.load() && !started_.load())
-    {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-
-    const double scale = std::max(timeScale_, 0.001);
-    const double tick = std::max(targetTimeStep_, 0.001);
-    const auto period = std::chrono::duration<double>(tick / scale);
-    const auto startedAt = std::chrono::steady_clock::now();
-    auto nextTick = startedAt;
-
-    while (!stopRequested_.load())
-    {
-        const auto now = std::chrono::steady_clock::now();
-        const double elapsed =
-            std::chrono::duration<double>(now - startedAt).count() * scale;
-        updateTargets(elapsed);
-
-        TargetSnapshot snapshot;
-        snapshot.timeSecSinceStart = elapsed;
-        {
-            std::lock_guard<std::mutex> lock(targetsMutex_);
-            snapshot.targets = targets_;
-        }
-        snapshots_.push(std::move(snapshot));
-
-        nextTick += std::chrono::duration_cast<
-            std::chrono::steady_clock::duration>(period);
-        std::this_thread::sleep_until(nextTick);
-    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    return targetCount_;
 }
 
-void ThreadSafeTargetProvider::updateTargets(double elapsed)
+int ThreadSafeTargetProvider::getTimeSteps() const
 {
-    const double segment = std::max(arrayTimeStep_, model::EPS);
-    std::vector<Target> updated;
-    updated.reserve(trajectories_.size());
+    std::lock_guard<std::mutex> lock(mutex_);
+    return timeSteps_;
+}
 
-    for (const auto& trajectory : trajectories_)
+Coord* ThreadSafeTargetProvider::getTarget(int index)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    return paths_[static_cast<std::size_t>(index)].data();
+}
+
+Coord** ThreadSafeTargetProvider::getTargets()
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    return targetPointers_.data();
+}
+
+void ThreadSafeTargetProvider::setTiming(double arrayTimeStep, double timeScale)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (arrayTimeStep > model::EPS)
     {
-        if (trajectory.empty())
-        {
-            updated.push_back({});
-            continue;
-        }
-
-        const auto absoluteIndex = static_cast<long long>(
-            std::floor(elapsed / segment + model::EPS));
-        const std::size_t current = static_cast<std::size_t>(
-            absoluteIndex % static_cast<long long>(trajectory.size()));
-        const std::size_t next = (current + 1U) % trajectory.size();
-        const double segmentStart =
-            static_cast<double>(absoluteIndex) * segment;
-        const double alpha = std::clamp(
-            (elapsed - segmentStart) / segment,
-            0.0,
-            1.0);
-        const Coord delta = trajectory[next] - trajectory[current];
-
-        updated.push_back({
-            trajectory[current] + delta * alpha,
-            delta / segment});
+        arrayTimeStep_ = arrayTimeStep;
     }
-
-    std::lock_guard<std::mutex> lock(targetsMutex_);
-    targets_ = std::move(updated);
+    if (timeScale > model::EPS)
+    {
+        timeScale_ = timeScale;
+    }
 }
 
 bool ThreadSafeTargetProvider::isThreadReady() const
@@ -180,23 +163,71 @@ void ThreadSafeTargetProvider::stop()
     stopRequested_.store(true);
 }
 
-int ThreadSafeTargetProvider::getTargetCount() const
+Target ThreadSafeTargetProvider::getCurrentTarget(int index) const
 {
-    std::lock_guard<std::mutex> lock(targetsMutex_);
-    return static_cast<int>(targets_.size());
+    std::lock_guard<std::mutex> lock(mutex_);
+    return currentTargets_[static_cast<std::size_t>(index)];
 }
 
-Target ThreadSafeTargetProvider::getTarget(int index) const
+std::vector<Target> ThreadSafeTargetProvider::getSnapshot() const
 {
-    std::lock_guard<std::mutex> lock(targetsMutex_);
-    if (index < 0 || index >= static_cast<int>(targets_.size()))
+    std::lock_guard<std::mutex> lock(mutex_);
+    return currentTargets_;
+}
+
+Coord ThreadSafeTargetProvider::calcVelocity(int targetIndex, int sampleIndex) const
+{
+    if (timeSteps_ <= 1 || arrayTimeStep_ <= model::EPS || sampleIndex <= 0)
     {
-        return {};
+        return {0.0, 0.0};
     }
-    return targets_[static_cast<std::size_t>(index)];
+
+    const int previousIndex = sampleIndex - 1;
+    const Coord current = paths_[static_cast<std::size_t>(targetIndex)]
+                               [static_cast<std::size_t>(sampleIndex)];
+    const Coord previous = paths_[static_cast<std::size_t>(targetIndex)]
+                                [static_cast<std::size_t>(previousIndex)];
+    return (current - previous) / arrayTimeStep_;
 }
 
-bool ThreadSafeTargetProvider::tryPopSnapshot(TargetSnapshot& snapshot)
+void ThreadSafeTargetProvider::updateCurrentTargetsLocked(int sampleIndex)
 {
-    return snapshots_.tryPop(snapshot);
+    if (targetCount_ <= 0 || timeSteps_ <= 0)
+    {
+        return;
+    }
+
+    const int wrappedIndex = sampleIndex % timeSteps_;
+    for (int i = 0; i < targetCount_; ++i)
+    {
+        currentTargets_[static_cast<std::size_t>(i)] = {
+            paths_[static_cast<std::size_t>(i)][static_cast<std::size_t>(wrappedIndex)],
+            calcVelocity(i, wrappedIndex)};
+    }
+}
+
+void ThreadSafeTargetProvider::run()
+{
+    ready_.store(true);
+    while (!stopRequested_.load() && !started_.load())
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    int sampleIndex = 0;
+    while (!stopRequested_.load())
+    {
+        double step = 0.1;
+        double scale = 1000.0;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            updateCurrentTargetsLocked(sampleIndex);
+            step = arrayTimeStep_;
+            scale = timeScale_;
+        }
+        ++sampleIndex;
+        const double sleepSeconds = step / std::max(scale, model::EPS);
+        std::this_thread::sleep_for(
+            std::chrono::duration<double>(sleepSeconds));
+    }
 }

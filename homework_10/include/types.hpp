@@ -32,18 +32,11 @@ struct DroneConfig
     std::string ammoName;
     double arrayTimeStep;
     double simTimeStep;
+    double physicsTimeStep;
+    double timeScale;
     double hitRadius;
     double angularSpeed;
     double turnThreshold;
-    double targetTimeStep = 0.05;
-    double physicsTimeStep = 0.01;
-    double timeScale = 10.0;
-};
-
-struct Target
-{
-    Coord pos;
-    Coord velocity;
 };
 
 struct AmmoParams
@@ -56,8 +49,8 @@ struct AmmoParams
 
 struct BallisticResult
 {
-    double fallTime = 0.0;
-    double horizontalDistance = 0.0;
+    double fallTime;
+    double horizontalDistance;
 };
 
 struct SimStep
@@ -69,7 +62,22 @@ struct SimStep
     Coord dropPoint;
     Coord aimPoint;
     Coord predictedTarget;
-    double timeSecSinceStart = 0.0;
+    double timeSecSinceStart;
+};
+
+struct Target
+{
+    Coord pos;
+    Coord velocity;
+};
+
+struct DroneTelemetry
+{
+    Coord pos;
+    Coord speed;
+    double direction;
+    int state;
+    double timeSecSinceStart;
 };
 
 struct DroneRuntime

@@ -2,7 +2,7 @@
 
 #include <string>
 
-#include "i_config_loader.hpp"
+#include "interfaces.hpp"
 
 class FileConfigLoader : public IConfigLoader {
 public:

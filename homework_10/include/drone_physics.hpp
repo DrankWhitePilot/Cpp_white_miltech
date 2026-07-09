@@ -1,57 +1,61 @@
 #pragma once
 
 #include <atomic>
-#include <cstdint>
+#include <future>
 #include <mutex>
 
 #include "drone_state.hpp"
 #include "thread_safe_queue.hpp"
 #include "types.hpp"
 
-struct DroneCommand
+struct DronePhysicsResult
 {
-    std::uint64_t id = 0;
-    int state = state_code::STOPPED;
-    double angleSpeed = 0.0;
-    DroneMotion motion = DroneMotion::DYNAMIC;
-    Coord destination{};
-    double desiredDirection = 0.0;
+    DroneTelemetry telemetry{};
+    bool completed = false;
 };
 
-struct DroneTelemetry
+struct DroneCommand
 {
-    Coord pos{};
-    Coord speed{};
-    double direction = 0.0;
-    int state = state_code::STOPPED;
-    double timeSecSinceStart = 0.0;
-    bool commandCompleted = false;
-    std::uint64_t completedCommandId = 0;
+    DroneMotion motion = DroneMotion::DYNAMIC;
+    Coord destination{0.0, 0.0};
+    double desiredDirection = 0.0;
+    DroneRuntime runtime{};
+    bool completed = false;
+    std::shared_ptr<std::promise<DronePhysicsResult>> response;
 };
 
 class DronePhysics
 {
 public:
-    explicit DronePhysics(DroneConfig config);
+    DronePhysics() = default;
+    explicit DronePhysics(const DroneConfig& config);
+    ~DronePhysics();
 
-    void run();
+    DronePhysics(const DronePhysics&) = delete;
+    DronePhysics& operator=(const DronePhysics&) = delete;
+
+    void configure(const DroneConfig& config);
+    void reset(Coord position, double direction);
+    void setDirection(double direction);
+
     bool isThreadReady() const;
     void start();
     void stop();
+    void run();
 
-    void submitCommand(const DroneCommand& command);
     DroneTelemetry getTelemetry() const;
+    DroneRuntime getRuntime() const;
+    DronePhysicsResult executeCommandSync(const DroneCommand& command);
 
 private:
-    DroneConfig config_;
+    DronePhysicsResult executeCommandLocked(const DroneCommand& command);
+
+    mutable std::mutex mutex_;
+    DroneConfig config_{};
     DroneRuntime runtime_{};
-    DroneCommand activeCommand_{};
-    bool activeCommandCompleted_ = false;
+    Coord velocity_{0.0, 0.0};
+    double timeSecSinceStart_ = 0.0;
     ThreadSafeQueue<DroneCommand> commands_;
-
-    mutable std::mutex telemetryMutex_;
-    DroneTelemetry telemetry_{};
-
     std::atomic<bool> ready_{false};
     std::atomic<bool> started_{false};
     std::atomic<bool> stopRequested_{false};

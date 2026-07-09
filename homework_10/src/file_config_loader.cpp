@@ -70,14 +70,19 @@ int FileConfigLoader::load()
     config_.turnThreshold = j["drone"]["turnThreshold"];
     config_.ammoName = j["ammo"].get<std::string>();
 
-    config_.simTimeStep = j["simulation"].value("timeStep", 0.1);
-    config_.hitRadius = j["simulation"].value("hitRadius", 3.0);
-    config_.arrayTimeStep = j.value("targetArrayTimeStep", 0.05);
-    config_.targetTimeStep = j["simulation"].value(
-        "targetTimeStep", config_.arrayTimeStep);
-    config_.physicsTimeStep = j["simulation"].value(
-        "physicsTimeStep", 0.01);
-    config_.timeScale = j["simulation"].value("timeScale", 10.0);
+    config_.simTimeStep = j["simulation"]["timeStep"];
+    config_.physicsTimeStep = config_.simTimeStep;
+    if (j["simulation"].contains("physicsTimeStep"))
+    {
+        config_.physicsTimeStep = j["simulation"]["physicsTimeStep"];
+    }
+    config_.timeScale = 1000.0;
+    if (j["simulation"].contains("timeScale"))
+    {
+        config_.timeScale = j["simulation"]["timeScale"];
+    }
+    config_.hitRadius = j["simulation"]["hitRadius"];
+    config_.arrayTimeStep = j["targetArrayTimeStep"];
 
     bool ammoLoaded = false;
     const std::vector<AmmoParams> ammo = loadAmmo(ammoFile_, ammoLoaded);

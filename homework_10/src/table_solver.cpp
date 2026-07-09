@@ -25,7 +25,7 @@ bool TableSolver::solve(
         return false;
     }
 
-    const BallisticTable::Result tableResult = table_.lookup(
+    BallisticTable::Result tableResult = table_.lookup(
         config.altitude,
         config.attackSpeed,
         ammo.mass,
