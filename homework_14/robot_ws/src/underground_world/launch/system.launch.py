@@ -1,5 +1,5 @@
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
+from launch.actions import DeclareLaunchArgument, TimerAction
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
@@ -54,7 +54,7 @@ def generate_launch_description():
                 default_value="50",
                 description="Delay before applying queued move commands",
             ),
-            world_node,
+            TimerAction(period=2.0, actions=[world_node]),
             payload_action,
             mission_explorer,
         ]
