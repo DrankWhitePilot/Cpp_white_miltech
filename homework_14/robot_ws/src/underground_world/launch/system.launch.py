@@ -7,8 +7,6 @@ from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description():
-    # Сценарій можна змінити без редагування launch-файлу:
-    # ros2 launch underground_world system.launch.py scenario:=small_rooms.yaml
     scenario = LaunchConfiguration("scenario")
     move_commit_period_ms = LaunchConfiguration("move_commit_period_ms")
     scenario_path = PathJoinSubstitution(
@@ -30,7 +28,20 @@ def generate_launch_description():
         ],
     )
 
-    # Тут можна додати керуючі ноди або інший launch-файл з рішенням.
+    payload_action = Node(
+        package="underground_world",
+        executable="payload_action_node",
+        name="payload_action",
+        output="screen",
+    )
+
+    mission_explorer = Node(
+        package="underground_world",
+        executable="mission_explorer_node",
+        name="mission_explorer",
+        output="screen",
+    )
+
     return LaunchDescription(
         [
             DeclareLaunchArgument(
@@ -44,5 +55,7 @@ def generate_launch_description():
                 description="Delay before applying queued move commands",
             ),
             world_node,
+            payload_action,
+            mission_explorer,
         ]
     )

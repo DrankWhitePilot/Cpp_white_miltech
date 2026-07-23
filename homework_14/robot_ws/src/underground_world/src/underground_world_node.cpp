@@ -105,6 +105,9 @@ public:
 
     move_commit_timer_ = create_wall_timer(move_commit_period_, [this]() { commit_next_move(); });
     initial_publish_timer_ = create_wall_timer(std::chrono::milliseconds{250}, [this]() {
+      if (scan_pub_->get_subscription_count() == 0U) {
+        return;
+      }
       publish_state();
       initial_publish_timer_->cancel();
     });

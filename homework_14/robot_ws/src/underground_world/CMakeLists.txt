@@ -1,17 +1,14 @@
 cmake_minimum_required(VERSION 3.20)
 project(underground_world)
 
-# C++20 - базовий стандарт курсу.
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# ament_auto бере залежності з package.xml і тримає CMake коротшим.
 find_package(ament_cmake_auto REQUIRED)
 ament_auto_find_build_dependencies()
 
-# Власні msg/srv описують контракт між world node і керуючою системою.
 find_package(rosidl_default_generators REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/CellObservation.msg"
@@ -33,11 +30,16 @@ target_include_directories(underground_world_core PUBLIC include)
 ament_auto_add_executable(underground_world_node src/underground_world_node.cpp)
 target_link_libraries(underground_world_node underground_world_core)
 
+ament_auto_add_executable(mission_explorer_node src/mission_explorer_node.cpp)
+ament_auto_add_executable(payload_action_node src/payload_action_node.cpp)
+
 rosidl_get_typesupport_target(cpp_typesupport_target
   ${PROJECT_NAME}
   "rosidl_typesupport_cpp"
 )
 target_link_libraries(underground_world_node "${cpp_typesupport_target}")
+target_link_libraries(mission_explorer_node "${cpp_typesupport_target}")
+target_link_libraries(payload_action_node "${cpp_typesupport_target}")
 
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
@@ -54,7 +56,6 @@ endif()
 
 ament_export_dependencies(rosidl_default_runtime)
 
-# launch/ і config/ встановлюються у share, щоб ros2 launch знаходив сценарії.
 ament_auto_package(USE_SCOPED_HEADER_INSTALL_DIR INSTALL_TO_SHARE
   launch
   config
