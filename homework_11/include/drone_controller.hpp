@@ -1,6 +1,5 @@
 #pragma once
 
-#include <array>
 #include <vector>
 
 #include "drone_link.h"
@@ -27,17 +26,12 @@ public:
     ControlDecision decide();
 
 private:
-    static constexpr int HISTORY_STEPS = 256;
-
     struct TargetTrack
     {
         bool valid = false;
         Coord pos{0.0, 0.0};
         Coord velocity{0.0, 0.0};
         double lastTime = -1.0;
-        long long lastAbsoluteIndex = -1;
-        int sampleCount = 0;
-        std::array<Coord, HISTORY_STEPS> history{};
     };
 
     struct BallisticEstimate
@@ -46,34 +40,11 @@ private:
         double horizontalDistance = 0.0;
     };
 
-    DroneRuntime currentDroneRuntime() const;
-    DroneConfig makeConfig(const DroneRuntime& drone) const;
-    AmmoParams makeAmmo() const;
-    BallisticEstimate estimateBallistics(
-        const DroneConfig& config,
-        const AmmoParams& ammo) const;
-
-    bool buildPlanForTarget(
-        int targetIndex,
-        double currentTime,
-        const DroneRuntime& drone,
-        const DroneConfig& config,
-        const BallisticEstimate& ballistic,
-        AttackPlan& plan) const;
-
-    int chooseBestPlan(
-        double currentTime,
-        int currentTargetIndex,
-        const DroneRuntime& drone,
-        const DroneConfig& config,
-        const BallisticEstimate& ballistic,
-        AttackPlan& bestPlan) const;
+    BallisticEstimate estimateBallistics() const;
+    int chooseTarget(double leadTime) const;
 
     double currentTimeSec() const;
-    double targetSampleStep() const;
     double attackSpeed() const;
-    double accelerationPath() const;
-    double angularSpeed() const;
     double turnThreshold() const;
     double hitRadius() const;
 
@@ -86,6 +57,5 @@ private:
     bool hasTelemetry_ = false;
     bool dropDone_ = false;
 
-    int currentTargetIndex_ = -1;
     std::vector<TargetTrack> targets_;
 };
