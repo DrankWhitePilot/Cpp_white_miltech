@@ -20,6 +20,10 @@ llvm-18
 # Крос-тулчейн для ARM64-пристроїв: RPi4, Radxa ROCK 5B+, Jetson.
 g++-aarch64-linux-gnu
 
+# libgpiod headers і libraries для native та ARM64.
+libgpiod-dev:amd64
+libgpiod-dev:arm64
+
 # Інструменти для заняття 2.4: локальний і remote debug, memory diagnostics.
 gdb
 gdbserver
