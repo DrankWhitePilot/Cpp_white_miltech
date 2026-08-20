@@ -1,8 +1,7 @@
 #pragma once
 
-#include <string>
-
 #include <gpiod.h>
+#include <string>
 
 class GpioController
 {
@@ -15,10 +14,18 @@ public:
 
     bool init(const std::string& chipName, int startLine, int dropLine);
     bool setStart(bool value);
-    bool pulseDrop(int usec = 80000);
+    bool setDrop(bool value);
 
 private:
     gpiod_chip* chip_ = nullptr;
+
+#ifdef HW11_GPIOD_V1
     gpiod_line* start_ = nullptr;
     gpiod_line* drop_ = nullptr;
+#else
+    gpiod_line_request* startRequest_ = nullptr;
+    gpiod_line_request* dropRequest_ = nullptr;
+    unsigned int startOffset_ = 0;
+    unsigned int dropOffset_ = 0;
+#endif
 };

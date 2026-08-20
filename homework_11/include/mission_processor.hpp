@@ -1,78 +1,66 @@
 #pragma once
 
-#include <atomic>
-#include <memory>
-#include <mutex>
 #include <vector>
 
-#include "drone_physics.hpp"
-#include "interfaces.hpp"
+#include "drone_link.h"
+#include "mission_guidance.hpp"
 #include "types.hpp"
 
 class MissionProcessor
 {
 public:
-    MissionProcessor(
-        std::unique_ptr<ITargetProvider> targets,
-        std::unique_ptr<IBallisticSolver> solver,
-        std::unique_ptr<IConfigLoader> loader,
-        std::shared_ptr<DronePhysics> physics);
-    ~MissionProcessor();
+    void updateConfig(const dlink::DroneCfg& config);
+    void updateAmmo(const dlink::AmmoCfg& ammo);
+    void updateTelemetry(const dlink::Telemetry& telemetry);
+    void updateTarget(const dlink::TargetPos& target);
 
-    MissionProcessor(const MissionProcessor&) = delete;
-    MissionProcessor& operator=(const MissionProcessor&) = delete;
-    MissionProcessor(MissionProcessor&&) noexcept = delete;
-    MissionProcessor& operator=(MissionProcessor&&) noexcept = delete;
-
-    int init();
-    bool hasNext() const;
-    void step();
-    void reset();
-    void changeSolver(std::unique_ptr<IBallisticSolver> solver);
-
-    void run();
-    bool isThreadReady() const;
-    void start();
-    void stop();
-
-    const SimStep* getSteps() const;
-    int getStepCount() const;
+    MissionDecision decide();
 
 private:
-    bool buildPlanForTarget(
-        int targetIndex,
-        double currentTime,
-        const DroneRuntime& drone,
-        AttackPlan& plan) const;
+    struct TargetTrack
+    {
+        bool valid = false;
+        std::vector<Coord> path;
+    };
 
-    int chooseBestTargetFromState(
-        double currentTime,
-        int currentTargetIndex,
-        const DroneRuntime& drone,
-        AttackPlan& bestPlan) const;
+    bool ready() const;
+    double currentTimeSec() const;
 
-    bool appendStep(const SimStep& step);
-    void initializeRuntime();
+    DroneConfig makeConfig() const;
+    AmmoParams makeAmmo() const;
+    DroneRuntime makeRuntime() const;
 
-    static constexpr int MAX_STEPS = 10000;
+    bool solveBallistics(const DroneConfig& config,
+                         const AmmoParams& ammo,
+                         BallisticResult& result) const;
 
-    std::unique_ptr<ITargetProvider> targets_;
-    std::unique_ptr<IBallisticSolver> solver_;
-    std::unique_ptr<IConfigLoader> loader_;
-    std::shared_ptr<DronePhysics> physics_;
-    std::unique_ptr<IDroneState> state_ = std::make_unique<StateStopped>();
+    bool buildPlanForTarget(int targetIndex,
+                            const DroneConfig& config,
+                            const DroneRuntime& drone,
+                            const BallisticResult& ballistic,
+                            AttackPlan& plan) const;
 
-    MissionRuntime mission_{};
+    int chooseTarget(const DroneConfig& config,
+                     const DroneRuntime& drone,
+                     const BallisticResult& ballistic,
+                     AttackPlan& bestPlan) const;
+
+    bool currentDropWindow(int targetIndex,
+                           const DroneConfig& config,
+                           const AmmoParams& ammo,
+                           const DroneRuntime& drone,
+                           MissionDecision& decision) const;
+
+    dlink::DroneCfg config_{};
+    dlink::AmmoCfg ammo_{};
+    dlink::Telemetry telemetry_{};
+
+    bool hasConfig_ = false;
+    bool hasAmmo_ = false;
+    bool hasTelemetry_ = false;
+    bool dropDone_ = false;
+
     int currentTargetIndex_ = -1;
 
-    std::vector<SimStep> steps_;
-    int stepCount_ = 0;
-
-    bool initialized_ = false;
-    bool finished_ = true;
-
-    std::atomic<bool> ready_{false};
-    std::atomic<bool> started_{false};
-    std::atomic<bool> stopRequested_{false};
-    mutable std::mutex stepsMutex_;
+    std::vector<TargetTrack> targets_;
 };
