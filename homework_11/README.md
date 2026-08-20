@@ -12,8 +12,7 @@ normalized drone controls and produces one GPIO DROP pulse.
 - `UartLink` owns the raw 115200 8N1 nonblocking transport and packet parser.
 - `GpioController` owns START and DROP GPIO lines.
 
-The inherited Homework 10 math files are unchanged. Their exact comparison is
-performed by `tools/check_math_block.sh`.
+The inherited Homework 10 math files are unchanged.
 
 ## Build
 
@@ -27,47 +26,20 @@ sudo apt install -y build-essential cmake ninja-build libgpiod-dev gpiod socat k
 Configure and build:
 
 ```bash
-cd HW11_HW11
+cd homework_11
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build --target mission_uart_drop -j"$(nproc)"
 ```
 
-## Checker
-
-The live checker requires Linux with the `gpio-sim` kernel module. The official
-time scale is the default value `1`.
+## Tests
 
 ```bash
-./tools/run_checker_one.sh 10 3
-./tools/run_checker_all.sh
+ctest --test-dir build --output-on-failure
 ```
 
-An accelerated diagnostic run can be requested explicitly:
-
-```bash
-HW11_SCALE=50 ./tools/run_checker_one.sh 10 1
-```
-
-The scripts use only processes they started, keep every run in a unique
-`test-results/` directory and return a nonzero exit code on any failure.
-
-## Static checks
-
-```bash
-./tools/check_math_block.sh
-./tools/check_no_hacks.sh
-./tools/check_teacher_math_10.sh
-g++ -std=c++20 -Wall -Wextra -Werror -pedantic \
-  -Iinclude tests/drone_controller_test.cpp \
-  src/drone_controller.cpp src/model_math.cpp src/types.cpp \
-  -o /tmp/drone_controller_test && /tmp/drone_controller_test
-g++ -std=c++20 -Wall -Wextra -Werror -pedantic \
-  -Iinclude tests/uart_link_test.cpp src/uart_link.cpp \
-  -lutil -o /tmp/uart_link_test && /tmp/uart_link_test
-```
-
-`check_teacher_math_10.sh` validates the supplied checker's reference
-autopilot; it does not replace the live UART/GPIO run.
+The live checker is supplied separately and requires Linux with the `gpio-sim`
+kernel module. Run it at the official time scale `1` against the built
+`mission_uart_drop` executable.
 
 ## Direct launch
 
