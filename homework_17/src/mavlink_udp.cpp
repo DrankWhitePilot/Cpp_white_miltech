@@ -27,6 +27,7 @@ constexpr unsigned MAX_DROP_ATTEMPTS = 5;
 
 double latitudeFromY(double y)
 {
+    // У локальній системі Y спрямована на північ, X - на схід.
     return LATITUDE_ORIGIN + y / METRES_PER_DEGREE;
 }
 
@@ -184,6 +185,7 @@ bool MavlinkUdp::sendAttitude(const dlink::Telemetry& telemetry)
 bool MavlinkUdp::sendTelemetry(const dlink::Telemetry& telemetry)
 {
     bool ok = true;
+    // Телеметрія приходить частіше, а HEARTBEAT потрібен приблизно раз на секунду.
     if (!heartbeatSent_ || telemetry.t_ms < lastHeartbeatMs_ ||
         telemetry.t_ms - lastHeartbeatMs_ >= 1000U)
     {
@@ -301,6 +303,7 @@ void MavlinkUdp::poll()
     }
 
     if (dropAttempts_ < MAX_DROP_ATTEMPTS) {
+        // Перший пакет чекер спеціально губить, тому повторюємо ту саму команду.
         sendDropAttempt();
         return;
     }
