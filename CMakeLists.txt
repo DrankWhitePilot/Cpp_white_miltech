@@ -14,6 +14,8 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # paths, defines і flags, що й реальна CMake-збірка.
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+include(CTest)
+
 # Домашні роботи. По мірі появи додаємо кожну окремим add_subdirectory.
 add_subdirectory(homework_04)
 add_subdirectory(homework_05)
@@ -22,6 +24,7 @@ add_subdirectory(homework_08)
 add_subdirectory(homework_09)
 add_subdirectory(homework_10)
 add_subdirectory(homework_11)
+add_subdirectory(homework_17)
 
 # Demo-код для заняття 2.4: локальне і віддалене відлагодження через GDB.
 add_subdirectory(demos/lesson_2_4/debug_probe)
