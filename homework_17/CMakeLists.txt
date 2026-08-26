@@ -154,6 +154,15 @@ if(BUILD_TESTING)
 
     add_test(NAME hw17_mavlink_udp_test COMMAND hw17_mavlink_udp_test)
 
+    add_executable(hw17_mavlink_no_ack_test
+        tests/mavlink_no_ack_test.cpp
+    )
+
+    target_compile_options(hw17_mavlink_no_ack_test PRIVATE -Wall -Wextra -pedantic)
+    target_link_libraries(hw17_mavlink_no_ack_test PRIVATE hw17_hardware_transport)
+
+    add_test(NAME hw17_mavlink_no_ack_test COMMAND hw17_mavlink_no_ack_test)
+
     add_executable(hw17_checker_driver
         tests/checker_driver.cpp
     )

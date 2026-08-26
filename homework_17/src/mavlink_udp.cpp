@@ -309,7 +309,7 @@ void MavlinkUdp::poll()
     }
 
     dropPending_ = false;
-    std::cerr << "MAVLink drop ACK not received after 5 attempts\n";
+    std::cerr << "ACK не отримано після 5 спроб\n";
 }
 
 bool MavlinkUdp::dropPending() const
