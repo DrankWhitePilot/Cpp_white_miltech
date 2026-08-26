@@ -38,6 +38,13 @@ QGroundControl за замовчуванням слухає `127.0.0.1:14550`:
 --mavlink-address 127.0.0.1 --mavlink-port 14550
 ```
 
+Якщо програма працює у Docker, а QGroundControl запущений у Windows,
+використовуйте адресу хоста Docker:
+
+```bash
+--mavlink-address host.docker.internal --mavlink-port 14550
+```
+
 Програма надсилає `HEARTBEAT` приблизно раз на секунду, а
 `GLOBAL_POSITION_INT` і `ATTITUDE` — на кожному кроці отриманої фізичної
 телеметрії. Під час скиду вона надсилає `MAV_CMD_USER_1`, очікує

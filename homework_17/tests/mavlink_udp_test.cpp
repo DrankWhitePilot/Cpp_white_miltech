@@ -73,7 +73,7 @@ int main()
     socklen_t addressSize = sizeof(address);
     getsockname(server, reinterpret_cast<sockaddr*>(&address), &addressSize);
 
-    MavlinkUdp link("127.0.0.1", ntohs(address.sin_port));
+    MavlinkUdp link("localhost", ntohs(address.sin_port));
     if (!link.openSocket()) {
         close(server);
         return fail("openSocket");

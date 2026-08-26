@@ -8,6 +8,7 @@
 #include <fcntl.h>
 #include <iostream>
 #include <limits>
+#include <netdb.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -100,12 +101,20 @@ bool MavlinkUdp::openSocket()
         return false;
     }
 
-    destination_.sin_family = AF_INET;
-    destination_.sin_port = htons(port_);
-    if (inet_pton(AF_INET, address_.c_str(), &destination_.sin_addr) != 1) {
-        std::cerr << "Invalid MAVLink IPv4 address: " << address_ << '\n';
+    addrinfo hints{};
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_DGRAM;
+    addrinfo* result = nullptr;
+    const int resolveResult = getaddrinfo(address_.c_str(), nullptr, &hints, &result);
+    if (resolveResult != 0 || result == nullptr) {
+        std::cerr << "Cannot resolve MAVLink address " << address_ << ": "
+                  << gai_strerror(resolveResult) << '\n';
         return false;
     }
+
+    destination_ = *reinterpret_cast<sockaddr_in*>(result->ai_addr);
+    destination_.sin_port = htons(port_);
+    freeaddrinfo(result);
 
     return true;
 }
