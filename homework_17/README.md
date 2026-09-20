@@ -45,6 +45,11 @@ QGroundControl за замовчуванням слухає `127.0.0.1:14550`:
 --mavlink-address host.docker.internal --mavlink-port 14550
 ```
 
+У Docker всередині WSL цей DNS-аліас може бути відсутній. Тоді адресу Windows
+можна подивитися у WSL командою `ip route` (адреса після `default via`) і
+передати її через `--mavlink-address`. У QGroundControl також має бути
+увімкнено `Application Settings -> Comm Links -> AutoConnect -> UDP`.
+
 Програма надсилає `HEARTBEAT` приблизно раз на секунду, а
 `GLOBAL_POSITION_INT` і `ATTITUDE` — на кожному кроці отриманої фізичної
 телеметрії. Під час скиду вона надсилає `MAV_CMD_USER_1`, очікує

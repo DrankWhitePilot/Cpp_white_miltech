@@ -1,13 +1,18 @@
 #include <chrono>
 #include <cstdint>
 #include <iostream>
+#include <string>
 #include <thread>
 
 #include "mavlink_udp.hpp"
 
-int main()
+int main(int argc, char* argv[])
 {
-    MavlinkUdp link("127.0.0.1", 14550);
+    const std::string address = argc > 1 ? argv[1] : "127.0.0.1";
+    const uint32_t durationMs = argc > 2
+                                    ? static_cast<uint32_t>(std::stoul(argv[2])) * 1000U
+                                    : 7000U;
+    MavlinkUdp link(address, 14550);
     if (!link.openSocket()) {
         return 1;
     }
@@ -16,7 +21,7 @@ int main()
     constexpr float speed = 10.0f;
     bool dropStarted = false;
 
-    for (uint32_t timeMs = 0; timeMs <= 7000; timeMs += stepMs) {
+    for (uint32_t timeMs = 0; timeMs <= durationMs; timeMs += stepMs) {
         dlink::Telemetry telemetry{};
         telemetry.t_ms = timeMs;
         telemetry.x = speed * static_cast<float>(timeMs) / 1000.0f;
