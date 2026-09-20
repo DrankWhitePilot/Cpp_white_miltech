@@ -3,6 +3,7 @@ add_executable(mission_smart_state
     src/json_target_provider.cpp
     src/file_config_loader.cpp
     src/analytical_solver.cpp
+    src/model_math.cpp
     src/ballistic_table.cpp
     src/table_solver.cpp
     src/drone_state.cpp
