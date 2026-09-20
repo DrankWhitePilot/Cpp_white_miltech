@@ -27,6 +27,18 @@ ARG DEBIAN_FRONTEND="noninteractive"
 # - locale-gen генерує en_US.UTF-8 щоб C++ std::cout коректно виводив
 #   non-ASCII (кирилиця, UTF-8 JSON). Без цього setlocale повертає NULL
 #   і stdout/stderr ламаються на кирилиці.
+RUN dpkg --add-architecture arm64 && \
+  sed -i '/^Components:/a Architectures: amd64' \
+    /etc/apt/sources.list.d/ubuntu.sources && \
+  printf '%s\n' \
+    'Types: deb' \
+    'URIs: http://ports.ubuntu.com/ubuntu-ports' \
+    'Suites: noble noble-updates noble-backports noble-security' \
+    'Components: main universe restricted multiverse' \
+    'Architectures: arm64' \
+    'Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg' \
+    > /etc/apt/sources.list.d/ubuntu-arm64.sources
+
 COPY apt-packages.in /tmp/apt.in
 RUN apt update && \
   grep -vE '^\s*#' /tmp/apt.in | xargs apt install --no-install-recommends -y && \
