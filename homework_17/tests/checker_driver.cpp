@@ -1,4 +1,5 @@
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <iostream>
 #include <string>
@@ -12,6 +13,7 @@ int main(int argc, char* argv[])
     const uint32_t durationMs = argc > 2
                                     ? static_cast<uint32_t>(std::stoul(argv[2])) * 1000U
                                     : 7000U;
+    const bool turningDemo = argc > 3 && std::string(argv[3]) == "turn";
     MavlinkUdp link(address, 14550);
     if (!link.openSocket()) {
         return 1;
@@ -24,13 +26,21 @@ int main(int argc, char* argv[])
     for (uint32_t timeMs = 0; timeMs <= durationMs; timeMs += stepMs) {
         dlink::Telemetry telemetry{};
         telemetry.t_ms = timeMs;
-        telemetry.x = speed * static_cast<float>(timeMs) / 1000.0f;
-        telemetry.y = 0.0f;
+        const float timeSec = static_cast<float>(timeMs) / 1000.0f;
+        if (turningDemo) {
+            constexpr float turnRate = 0.08f;
+            const float direction = turnRate * timeSec;
+            telemetry.x = speed / turnRate * std::sin(direction);
+            telemetry.y = speed / turnRate * (1.0f - std::cos(direction));
+            telemetry.vx = speed * std::cos(direction);
+            telemetry.vy = speed * std::sin(direction);
+            telemetry.dir = direction;
+        } else {
+            telemetry.x = speed * timeSec;
+            telemetry.vx = speed;
+        }
         telemetry.z = 100.0f;
-        telemetry.vx = speed;
-        telemetry.vy = 0.0f;
         telemetry.speed = speed;
-        telemetry.dir = 0.0f;
 
         if (!link.sendTelemetry(telemetry)) {
             return 1;
