@@ -4,7 +4,9 @@
 #include <string>
 
 #include "factory.hpp"
-#include "interfaces.hpp"
+#include "i_ballistic_solver.hpp"
+#include "i_config_loader.hpp"
+#include "i_target_provider.hpp"
 #include "json.hpp"
 #include "mission_processor.hpp"
 #include "model_math.hpp"

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "interfaces.hpp"
+#include "i_ballistic_solver.hpp"
 
 class AnalyticalSolver : public IBallisticSolver {
 public:
