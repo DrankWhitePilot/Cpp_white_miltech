@@ -1,0 +1,8 @@
+[wokwi]
+version = 1
+firmware = "build/homework_18.bin"
+elf = "build/homework_18.elf"
+rfc2217ServerPort = 4000
+
+[serial]
+baud = 115200
