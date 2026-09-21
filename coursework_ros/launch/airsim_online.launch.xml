@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<launch>
+  <arg name="scenario" default="Базовий тест Кола"/>
+  <arg name="ammo" default=""/>
+  <arg name="host" default="127.0.0.1"/>
+  <arg name="dashboard_host" default="127.0.0.1"/>
+  <arg name="port" default="41451"/>
+  <arg name="start_at_altitude" default="true"/>
+  <arg name="auto_takeoff" default="false"/>
+  <arg name="reset_on_start" default="false"/>
+  <arg name="world_scale" default="0.25"/>
+  <arg name="target_texture_directory" default=""/>
+  <arg name="scenario_directory" default="$(find-pkg-share coursework_guidance_ros)/scenarios/$(var scenario)"/>
+
+  <node pkg="coursework_guidance_ros" exec="airsim_online_node" name="airsim_online_node" output="screen">
+    <param name="scenario_directory" value="$(var scenario_directory)"/>
+    <param name="ammo" value="$(var ammo)"/>
+    <param name="host" value="$(var host)"/>
+    <param name="dashboard_host" value="$(var dashboard_host)"/>
+    <param name="port" value="$(var port)"/>
+    <param name="start_at_altitude" value="$(var start_at_altitude)"/>
+    <param name="auto_takeoff" value="$(var auto_takeoff)"/>
+    <param name="reset_on_start" value="$(var reset_on_start)"/>
+    <param name="world_scale" value="$(var world_scale)"/>
+    <param name="target_texture_directory" value="$(var target_texture_directory)"/>
+  </node>
+</launch>

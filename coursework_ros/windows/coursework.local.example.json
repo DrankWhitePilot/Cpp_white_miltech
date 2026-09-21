@@ -1,0 +1,7 @@
+{
+  "Distro": "Ubuntu-24.04",
+  "LinuxUser": "user",
+  "LinuxProject": "/home/user/Cpp_white_miltech_coursework",
+  "SceneExe": "C:\\path\\to\\WindowsNoEditor\\MSBuild2018.exe",
+  "AirSimHost": ""
+}

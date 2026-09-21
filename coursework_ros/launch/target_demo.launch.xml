@@ -1,0 +1,13 @@
+<?xml version="1.0"?>
+<launch>
+  <arg name="target_index" default="0"/>
+  <arg name="time_scale" default="1000.0"/>
+  <arg name="targets_file" default="$(find-pkg-share coursework_guidance_ros)/config/targets.json"/>
+
+  <node pkg="coursework_guidance_ros" exec="target_trajectory_node" name="target_trajectory_node" output="screen">
+    <param name="targets_file" value="$(var targets_file)"/>
+    <param name="target_index" value="$(var target_index)"/>
+    <param name="array_time_step" value="10.0"/>
+    <param name="time_scale" value="$(var time_scale)"/>
+  </node>
+</launch>

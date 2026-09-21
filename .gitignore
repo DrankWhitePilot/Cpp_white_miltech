@@ -2,6 +2,14 @@
 build/
 build-*/
 out/
+install/
+log/
+
+# Per-machine configuration and generated demonstration data.
+coursework_ros/windows/coursework.local.json
+coursework_ros/windows/current_curves.txt
+coursework_ros/windows/current_ammo.txt
+coursework_ros/windows/results/
 
 # CMake генерує ці файли при in-source або ручних локальних збірках.
 CMakeCache.txt

@@ -1,0 +1,883 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>AirSim Guidance Control</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #071018;
+      --panel: rgba(13, 27, 38, .92);
+      --line: rgba(143, 180, 199, .17);
+      --muted: #8fa8b6;
+      --text: #ecf7fb;
+      --cyan: #35d6d0;
+      --green: #64e38b;
+      --amber: #ffbd57;
+      --red: #ff5f6d;
+    }
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+    body {
+      font-family: Inter, "Segoe UI", system-ui, sans-serif;
+      background:
+        radial-gradient(circle at 15% 0%, rgba(34, 119, 141, .18), transparent 34%),
+        radial-gradient(circle at 92% 100%, rgba(35, 92, 82, .16), transparent 38%),
+        var(--bg);
+      color: var(--text);
+    }
+    .app { height: 100%; display: grid; grid-template-rows: 76px 1fr; }
+    header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 26px; border-bottom: 1px solid var(--line);
+      background: rgba(6, 15, 22, .78); backdrop-filter: blur(18px);
+    }
+    .brand { display: flex; gap: 14px; align-items: center; }
+    .brand-mark {
+      width: 42px; height: 42px; border-radius: 12px; position: relative;
+      border: 1px solid rgba(53, 214, 208, .45);
+      background: linear-gradient(145deg, rgba(53,214,208,.22), rgba(53,214,208,.04));
+      box-shadow: 0 0 28px rgba(53,214,208,.13);
+    }
+    .brand-mark::before, .brand-mark::after {
+      content: ""; position: absolute; left: 9px; right: 9px; height: 2px;
+      background: var(--cyan); box-shadow: 0 0 10px var(--cyan);
+    }
+    .brand-mark::before { top: 15px; transform: rotate(28deg); }
+    .brand-mark::after { bottom: 15px; transform: rotate(-28deg); }
+    .eyebrow { color: var(--cyan); font-size: 10px; letter-spacing: .22em; font-weight: 800; }
+    h1 { margin: 4px 0 0; font-size: 20px; letter-spacing: .02em; }
+    .header-status { display: flex; gap: 12px; align-items: center; }
+    .connection {
+      display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+      border: 1px solid var(--line); border-radius: 999px; color: var(--muted); font-size: 12px;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #526671; }
+    .connection.online .dot { background: var(--green); box-shadow: 0 0 12px var(--green); }
+    .connection.online { color: #dfffea; }
+    .phase {
+      min-width: 126px; text-align: center; padding: 9px 13px; border-radius: 9px;
+      font-size: 11px; font-weight: 800; letter-spacing: .12em;
+      color: var(--cyan); background: rgba(53,214,208,.1); border: 1px solid rgba(53,214,208,.24);
+    }
+    main { min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) 354px; gap: 16px; padding: 16px; }
+    .map-card, .panel {
+      border: 1px solid var(--line); border-radius: 18px; overflow: hidden;
+      background: var(--panel); box-shadow: 0 20px 55px rgba(0,0,0,.22);
+    }
+    .map-card { position: relative; min-height: 0; }
+    #map { width: 100%; height: 100%; display: block; }
+    .map-top {
+      position: absolute; top: 16px; left: 16px; right: 16px;
+      display: flex; justify-content: space-between; pointer-events: none;
+    }
+    .glass {
+      padding: 10px 13px; border-radius: 11px; background: rgba(5, 14, 20, .76);
+      border: 1px solid rgba(153,190,205,.18); backdrop-filter: blur(10px);
+    }
+    .scenario-name { font-size: 13px; font-weight: 700; }
+    .coords { color: var(--muted); font: 12px ui-monospace, SFMono-Regular, Consolas, monospace; }
+    .legend {
+      position: absolute; left: 16px; bottom: 16px; display: flex; gap: 14px;
+      padding: 9px 12px; border-radius: 10px; background: rgba(5,14,20,.76);
+      border: 1px solid var(--line); color: var(--muted); font-size: 11px;
+    }
+    .legend span { display: flex; align-items: center; gap: 6px; }
+    .legend span[hidden] { display: none; }
+    .legend i { width: 8px; height: 8px; border-radius: 3px; display: inline-block; }
+    .side { min-height: 0; display: flex; flex-direction: column; gap: 16px; overflow-y: auto; }
+    .panel { padding: 18px; }
+    .panel-title { color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .18em; margin-bottom: 14px; }
+    .metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .metric {
+      padding: 13px; min-height: 77px; border-radius: 12px;
+      border: 1px solid rgba(143,180,199,.12); background: rgba(255,255,255,.025);
+    }
+    .metric label { display: block; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .1em; }
+    .metric strong { display: block; margin-top: 8px; font-size: 21px; font-weight: 750; }
+    .metric strong small { font-size: 11px; color: var(--muted); font-weight: 600; }
+    .result {
+      position: relative; padding: 18px; min-height: 132px; overflow: hidden;
+      background: linear-gradient(140deg, rgba(53,214,208,.10), rgba(255,255,255,.02));
+    }
+    .result::after {
+      content: ""; position: absolute; width: 150px; height: 150px; border-radius: 50%;
+      right: -70px; top: -75px; background: var(--cyan); opacity: .07; filter: blur(8px);
+    }
+    .result-label { color: var(--muted); font-size: 10px; letter-spacing: .18em; font-weight: 800; }
+    .result-main { margin-top: 9px; font-size: 30px; font-weight: 850; letter-spacing: .03em; }
+    .result-detail { margin-top: 7px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+    .result.hit { border-color: rgba(100,227,139,.35); }
+    .result.hit .result-main { color: var(--green); }
+    .result.miss { border-color: rgba(255,95,109,.4); }
+    .result.miss .result-main { color: var(--red); }
+    .controls { flex: 0 0 auto; }
+    .scenario-control { margin-bottom: 12px; }
+    .scenario-control label {
+      display: block; margin-bottom: 7px; color: var(--muted);
+      font-size: 10px; text-transform: uppercase; letter-spacing: .1em;
+    }
+    select {
+      width: 100%; min-height: 42px; padding: 0 34px 0 11px; border-radius: 10px;
+      border: 1px solid var(--line); color: var(--text); background: #0d1b26;
+      font: 650 12px "Segoe UI", system-ui, sans-serif;
+    }
+    .file-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+    input[type="file"] {
+      width: 100%; min-width: 0; padding: 8px; border-radius: 10px;
+      border: 1px solid var(--line); color: var(--muted); background: #0d1b26;
+      font: 600 11px "Segoe UI", system-ui, sans-serif;
+    }
+    input[type="file"]::file-selector-button {
+      margin-right: 9px; padding: 6px 9px; border: 0; border-radius: 7px;
+      background: rgba(53,214,208,.16); color: var(--cyan); cursor: pointer;
+    }
+    .file-status { min-height: 14px; margin: -4px 0 11px; color: var(--muted); font-size: 10px; }
+    .compare-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+    .compare-confirm { display: flex; align-items: flex-start; gap: 8px; margin: 10px 0;
+      color: var(--muted); font-size: 11px; line-height: 1.35; }
+    .compare-confirm input { margin-top: 1px; accent-color: var(--cyan); }
+    .compare-block { margin-top: 12px; padding: 12px; border: 1px solid rgba(53,214,208,.25);
+      border-radius: 11px; background: rgba(53,214,208,.045); }
+    .compare-block[hidden] { display: none; }
+    .compare-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .compare-grid div { border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
+    .compare-grid span { display: block; color: var(--muted); font-size: 10px; }
+    .compare-grid strong { display: block; margin-top: 3px; font-size: 15px; }
+    .compare-note { margin: 10px 0; color: var(--muted); font-size: 10px; line-height: 1.4; }
+    .history { padding-bottom: 12px; }
+    .table-wrap { overflow: hidden; border: 1px solid rgba(143,180,199,.11); border-radius: 10px; }
+    table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 10px; }
+    th, td { padding: 7px 6px; text-align: left; border-bottom: 1px solid rgba(143,180,199,.09); }
+    th { color: var(--muted); font-weight: 700; letter-spacing: .05em; }
+    tr:last-child td { border-bottom: 0; }
+    td:first-child { width: 47%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .status-hit { color: var(--green); font-weight: 800; }
+    .status-miss { color: var(--red); font-weight: 800; }
+    .empty-row { color: var(--muted); text-align: center; padding: 12px; }
+    .buttons { display: grid; grid-template-columns: 1.25fr 1fr 1fr; gap: 8px; }
+    button {
+      appearance: none; border: 1px solid var(--line); border-radius: 11px;
+      min-height: 45px; padding: 0 14px; cursor: pointer; color: var(--text);
+      background: rgba(255,255,255,.045); font: 700 12px inherit;
+      transition: transform .15s ease, border-color .15s ease, background .15s ease;
+    }
+    button:hover { transform: translateY(-1px); border-color: rgba(53,214,208,.5); }
+    button.primary { background: var(--cyan); color: #041315; border-color: transparent; }
+    button.danger { color: #ffdce0; border-color: rgba(255,95,109,.28); }
+    button:disabled { opacity: .45; cursor: wait; transform: none; }
+    .hint { margin-top: 12px; color: #69818e; font-size: 10px; text-align: center; }
+    @media (max-width: 980px) {
+      body { overflow: auto; }
+      .app { height: auto; min-height: 100%; }
+      main { grid-template-columns: 1fr; }
+      .map-card { height: 62vh; }
+      .side { display: grid; grid-template-columns: 1fr 1fr; }
+      .controls { margin-top: 0; }
+    }
+  </style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="brand">
+      <div class="brand-mark"></div>
+      <div><div class="eyebrow">COURSEWORK 2117</div><h1>AirSim Guidance Control</h1></div>
+    </div>
+    <div class="header-status">
+      <div id="connection" class="connection"><span class="dot"></span><span>Немає телеметрії</span></div>
+      <div id="phase" class="phase">OFFLINE</div>
+    </div>
+  </header>
+
+  <main>
+    <section class="map-card">
+      <canvas id="map"></canvas>
+      <div class="map-top">
+        <div class="glass"><div class="eyebrow">СЦЕНАРІЙ</div><div id="scenario" class="scenario-name">Очікування даних</div></div>
+        <div id="coords" class="glass coords">X — &nbsp; Y — &nbsp; H —</div>
+      </div>
+      <div class="legend">
+        <span><i style="background:#35d6d0"></i>Дрон</span>
+        <span><i style="background:#ffbd57"></i>Боєприпас</span>
+        <span><i style="background:#ff5f6d"></i>Обрана ціль</span>
+        <span id="referenceLegend" hidden><i style="background:#d6a6ff"></i>Телеметрія ДЗ11</span>
+      </div>
+    </section>
+
+    <aside class="side">
+      <section class="panel controls">
+        <div class="panel-title">ЗАПУСК СИМУЛЯЦІЇ</div>
+        <div class="scenario-control">
+          <label for="curveSelect">1. Криві руху цілей</label>
+          <select id="curveSelect">
+            <option value="base_circles">Базовий тест Кола</option>
+            <option value="heavy_ammo">Важкі боєприпаси</option>
+            <option value="lissajous_eight">Вісімки Ліссажу</option>
+            <option value="extreme">Екстремальний</option>
+            <option value="ellipses">Еліптичні траекторії</option>
+            <option value="cardioids_epitrochoids">Кардіоіди і епітрохоїди</option>
+            <option value="flowers">Квіткові траекторії</option>
+            <option value="lissajous_complex">Лісажу складні криві</option>
+            <option value="gliding_ammo">Планеруючі боєприпаси</option>
+            <option value="fast_drone_slow_targets">Швидкий дрон повільні цілі</option>
+          </select>
+        </div>
+        <div class="scenario-control">
+          <label for="ammoSelect">2. Боєприпас</label>
+          <select id="ammoSelect">
+            <option value="VOG-17">VOG-17</option>
+            <option value="M67">M67</option>
+            <option value="RKG-3">RKG-3</option>
+            <option value="GLIDING-VOG">GLIDING-VOG</option>
+            <option value="GLIDING-RKG">GLIDING-RKG</option>
+          </select>
+        </div>
+        <div class="buttons">
+          <button id="restart" class="primary">3. ЗАПУСТИТИ AIRSIM</button>
+          <button id="stop" class="danger">ЗУПИНИТИ</button>
+          <button id="close" class="danger">ЗАКРИТИ</button>
+        </div>
+        <div class="hint">AirSim відкриється окремим вікном; результати з’являться тут.</div>
+        <div class="scenario-control" style="margin-top:16px">
+          <label for="simulationFile">Свій simulation.json</label>
+          <div class="file-row">
+            <input id="simulationFile" type="file" accept=".json,application/json">
+            <button id="playJson">ВІДТВОРИТИ</button>
+          </div>
+        </div>
+        <div id="fileStatus" class="file-status" role="status">simulation.json читається локально та використовується лише для відтворення.</div>
+        <div class="scenario-control" style="margin-top:16px">
+          <label for="hw11TelemetryFile">Телеметрія ДЗ11 (.csv)</label>
+          <input id="hw11TelemetryFile" type="file" accept=".csv,text/csv">
+        </div>
+        <label class="compare-confirm"><input id="sameScenario" type="checkbox">Записи ДЗ11 та AirSim мають однакові початкові умови, систему координат і охоплюють однакову ділянку польоту.</label>
+        <button id="compareRun" style="width:100%">ПОРІВНЯТИ З AIRSIM</button>
+        <div id="compareStatus" class="file-status" role="status">Для порівняння вибери CSV-журнал ДЗ11. Файл не надсилається на сервер.</div>
+        <div id="comparison" class="compare-block" hidden>
+          <div class="panel-title">ПОРІВНЯННЯ ТРАЄКТОРІЙ</div>
+          <div class="compare-grid">
+            <div><span>Середнє відхилення</span><strong id="compareMean">—</strong></div>
+            <div><span>95-й перцентиль</span><strong id="compareP95">—</strong></div>
+            <div><span>Найбільше відхилення</span><strong id="compareMax">—</strong></div>
+            <div><span>Точки ДЗ11 / AirSim</span><strong id="compareCounts">—</strong></div>
+            <div><span>Час ДЗ11</span><strong id="compareRefTime">—</strong></div>
+            <div><span>Час AirSim</span><strong id="compareLiveTime">—</strong></div>
+          </div>
+          <div id="compareNote" class="compare-note"></div>
+          <button id="saveComparison" style="width:100%">ЗБЕРЕГТИ ЗВІТ JSON</button>
+        </div>
+      </section>
+      <section class="panel">
+        <div class="panel-title">ТЕЛЕМЕТРІЯ В РЕАЛЬНОМУ ЧАСІ</div>
+        <div class="metrics">
+          <div class="metric"><label>Висота</label><strong id="altitude">— <small>м</small></strong></div>
+          <div class="metric"><label>Швидкість</label><strong id="speed">— <small>м/с</small></strong></div>
+          <div class="metric"><label>Час місії</label><strong id="time">— <small>с</small></strong></div>
+          <div class="metric"><label>Обрана ціль</label><strong id="target">—</strong></div>
+          <div class="metric"><label>Боєприпас</label><strong id="ammo" style="font-size:16px">—</strong></div>
+          <div class="metric"><label>Кількість цілей</label><strong id="targetCount">—</strong></div>
+        </div>
+      </section>
+
+      <section id="result" class="panel result">
+        <div class="result-label">РЕЗУЛЬТАТ УРАЖЕННЯ</div>
+        <div id="resultMain" class="result-main">ОЧІКУВАННЯ</div>
+        <div id="resultDetail" class="result-detail">Система очікує завершення місії.</div>
+      </section>
+
+      <section class="panel history">
+        <div class="panel-title">ОСТАННІ РЕЗУЛЬТАТИ</div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Сценарій</th><th>Ціль</th><th>Похибка</th><th>Результат</th></tr></thead>
+            <tbody id="resultsBody"><tr><td colspan="4" class="empty-row">Ще немає запусків</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+    </aside>
+  </main>
+</div>
+
+<script>
+  // BEGIN HW11_TELEMETRY_PARSER
+  const Hw11Telemetry = (() => {
+    const header = 't_ms,x,y,z,vx,vy,speed,dir,state';
+    const numberPattern = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i;
+
+    function parse(text) {
+      const lines = text.replace(/^\uFEFF/, '').trim().split(/\r?\n/);
+      if (lines[0] !== '# hw11-telemetry-v1' || lines[1] !== header) {
+        throw new Error('Потрібен CSV-журнал телеметрії ДЗ11. simulation.json призначений лише для відтворення.');
+      }
+      const rows = lines.slice(2);
+      if (rows.length < 2 || rows.length > 5000) {
+        throw new Error('ДЗ11: потрібно від 2 до 5000 записів телеметрії одного польоту.');
+      }
+      let previousTime = -1;
+      return rows.map((line, index) => {
+        const fields = line.split(',');
+        if (fields.length !== 9 || fields.some(v => !numberPattern.test(v))) {
+          throw new Error(`ДЗ11: некоректні дані у рядку ${index + 3}.`);
+        }
+        const [ms, x, y, z, vx, vy, speed, dir, state] = fields.map(Number);
+        if ([ms, x, y, z, vx, vy, speed, dir, state].some(v => !Number.isFinite(v)) ||
+            !Number.isInteger(ms) || ms < 0 || ms > 4294967295 || ms <= previousTime ||
+            !Number.isInteger(state) || state < 0 || state > 255 || speed < 0) {
+          throw new Error(`ДЗ11: некоректне значення або час у рядку ${index + 3}. Час має зростати в межах одного польоту.`);
+        }
+        previousTime = ms;
+        return {t: ms / 1000, x, y, z, vx, vy, speed, dir, state};
+      });
+    }
+    return {parse};
+  })();
+  // END HW11_TELEMETRY_PARSER
+
+  const canvas = document.getElementById('map');
+  const ctx = canvas.getContext('2d');
+  const colors = ['#ff5f6d', '#64e38b', '#4d9cff', '#e76de8', '#ff9f43'];
+  const trails = { drone: [], targets: new Map(), projectile: [] };
+  let state = { connected: false, phase: 'offline' };
+  let previousRun = null;
+  let lastPacketAt = 0;
+  let actionBusy = false;
+  let displayMode = 'live';
+  let replayTimer = null;
+  let replayDocument = null;
+  let comparisonReference = [];
+  let comparisonActual = [];
+  let comparisonReport = null;
+  const curveSelect = document.getElementById('curveSelect');
+  const ammoSelect = document.getElementById('ammoSelect');
+  curveSelect.addEventListener('change', () => { curveSelect.dataset.touched = '1'; });
+  ammoSelect.addEventListener('change', () => { ammoSelect.dataset.touched = '1'; });
+
+  const phaseLabels = {
+    offline: 'OFFLINE', preparing: 'ПІДГОТОВКА', guidance: 'ДОНАВЕДЕННЯ',
+    projectile: 'СКИД', impact: 'УДАР', complete: 'ЗАВЕРШЕНО', replay: 'JSON REPLAY'
+  };
+
+  function resize() {
+    const rect = canvas.getBoundingClientRect();
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round(rect.width * dpr);
+    canvas.height = Math.round(rect.height * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  function resetTrails() {
+    trails.drone = []; trails.targets.clear(); trails.projectile = [];
+  }
+
+  function pushPoint(list, point, limit = 700) {
+    const last = list[list.length - 1];
+    if (!last || Math.hypot(last.x - point.x, last.y - point.y) > .25) list.push(point);
+    if (list.length > limit) list.shift();
+  }
+
+  function updateTrails(s) {
+    if (!s.connected || !s.drone) return;
+    if (comparisonReport && comparisonReport.airsim_run_id !== s.run_id) clearComparison();
+    if (previousRun !== s.run_id) { resetTrails(); previousRun = s.run_id; }
+    pushPoint(trails.drone, { x: s.drone.x, y: s.drone.y });
+    for (const t of s.targets || []) {
+      if (!trails.targets.has(t.id)) trails.targets.set(t.id, []);
+      pushPoint(trails.targets.get(t.id), { x: t.x, y: t.y });
+    }
+    if (s.projectile?.active) pushPoint(trails.projectile, { x: s.projectile.x, y: s.projectile.y });
+  }
+
+  function transformFor(s, w, h) {
+    const b = s.bounds || { min_x: 0, max_x: 300, min_y: 0, max_y: 300 };
+    const margin = 42;
+    const targetSpanX = Math.max(20, b.max_x - b.min_x);
+    const targetSpanY = Math.max(20, b.max_y - b.min_y);
+    // Keep the drone's approach corridor visible even if the dashboard connects
+    // after the accelerated simulation has already left the starting point.
+    let sceneMinX = b.min_x - Math.max(140, targetSpanX * .9), sceneMaxX = b.max_x;
+    let sceneMinY = b.min_y - Math.max(120, targetSpanY * .8), sceneMaxY = b.max_y;
+    const includePoint = p => {
+      if (!p || !Number.isFinite(+p.x) || !Number.isFinite(+p.y)) return;
+      sceneMinX = Math.min(sceneMinX, +p.x); sceneMaxX = Math.max(sceneMaxX, +p.x);
+      sceneMinY = Math.min(sceneMinY, +p.y); sceneMaxY = Math.max(sceneMaxY, +p.y);
+    };
+    includePoint(s.drone);
+    (s.targets || []).forEach(includePoint);
+    trails.drone.forEach(includePoint);
+    for (const points of trails.targets.values()) points.forEach(includePoint);
+    trails.projectile.forEach(includePoint);
+    comparisonReference.forEach(includePoint);
+    comparisonActual.forEach(includePoint);
+    if (s.projectile?.released) {
+      includePoint({ x: s.projectile.impact_x, y: s.projectile.impact_y });
+    }
+    if (s.replay) {
+      includePoint(s.replay.aimPoint); includePoint(s.replay.dropPoint);
+    }
+    const spanX = Math.max(20, sceneMaxX - sceneMinX);
+    const spanY = Math.max(20, sceneMaxY - sceneMinY);
+    const padX = spanX * .16, padY = spanY * .16;
+    const minX = sceneMinX - padX, maxX = sceneMaxX + padX;
+    const minY = sceneMinY - padY, maxY = sceneMaxY + padY;
+    const scale = Math.min((w - margin * 2) / (maxX - minX), (h - margin * 2) / (maxY - minY));
+    return {
+      point: (x, y) => ({ x: margin + (x - minX) * scale, y: h - margin - (y - minY) * scale }),
+      minX, maxX, minY, maxY, scale
+    };
+  }
+
+  function drawGrid(w, h, tr) {
+    const grd = ctx.createLinearGradient(0, 0, w, h);
+    grd.addColorStop(0, '#102a30'); grd.addColorStop(1, '#0a1d22');
+    ctx.fillStyle = grd; ctx.fillRect(0, 0, w, h);
+    const step = 25;
+    ctx.lineWidth = 1; ctx.font = '10px ui-monospace'; ctx.fillStyle = 'rgba(155,196,207,.38)';
+    for (let x = Math.ceil(tr.minX / step) * step; x <= tr.maxX; x += step) {
+      const a = tr.point(x, tr.minY), b = tr.point(x, tr.maxY);
+      ctx.strokeStyle = x % 100 === 0 ? 'rgba(112,181,193,.20)' : 'rgba(112,181,193,.09)';
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+      ctx.fillText(`${x}`, a.x + 4, h - 14);
+    }
+    for (let y = Math.ceil(tr.minY / step) * step; y <= tr.maxY; y += step) {
+      const a = tr.point(tr.minX, y), b = tr.point(tr.maxX, y);
+      ctx.strokeStyle = y % 100 === 0 ? 'rgba(112,181,193,.20)' : 'rgba(112,181,193,.09)';
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+      ctx.fillText(`${y}`, 12, a.y - 4);
+    }
+  }
+
+  function drawTrail(points, tr, color, width = 2) {
+    if (points.length < 2) return;
+    ctx.strokeStyle = color; ctx.lineWidth = width; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ctx.beginPath();
+    points.forEach((p, i) => { const q = tr.point(p.x, p.y); i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y); });
+    ctx.stroke();
+  }
+
+  function drawReference(points, tr) {
+    if (points.length < 2) return;
+    ctx.save(); ctx.setLineDash([8, 6]);
+    drawTrail(points, tr, '#d6a6ff', 2.8);
+    ctx.restore();
+  }
+
+  function drawCar(t, tr, index) {
+    const p = tr.point(t.x, t.y), c = colors[index % colors.length];
+    ctx.save(); ctx.translate(p.x, p.y);
+    if (t.selected) { ctx.shadowColor = '#ff5f6d'; ctx.shadowBlur = 22; }
+    ctx.fillStyle = t.destroyed ? '#38434a' : c;
+    roundRect(-10, -6, 20, 12, 4); ctx.fill();
+    ctx.shadowBlur = 0; ctx.fillStyle = 'rgba(5,15,20,.72)'; ctx.fillRect(-4, -5, 8, 10);
+    ctx.fillStyle = '#071018'; ctx.fillRect(-8, -8, 5, 3); ctx.fillRect(3, -8, 5, 3);
+    ctx.fillRect(-8, 5, 5, 3); ctx.fillRect(3, 5, 5, 3);
+    ctx.fillStyle = '#fff'; ctx.font = '700 10px Segoe UI'; ctx.textAlign = 'center'; ctx.fillText(`T${t.id}`, 0, -12);
+    ctx.restore();
+  }
+
+  function roundRect(x, y, w, h, r) {
+    ctx.beginPath(); ctx.roundRect(x, y, w, h, r);
+  }
+
+  function drawDrone(d, tr) {
+    const p = tr.point(d.x, d.y);
+    ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(-(d.heading || 0));
+    ctx.strokeStyle = '#35d6d0'; ctx.lineWidth = 3; ctx.shadowColor = '#35d6d0'; ctx.shadowBlur = 14;
+    ctx.beginPath(); ctx.moveTo(-10,-10); ctx.lineTo(10,10); ctx.moveTo(10,-10); ctx.lineTo(-10,10); ctx.stroke();
+    ctx.fillStyle = '#071a1d'; ctx.strokeStyle = '#70fff7';
+    for (const [x,y] of [[-11,-11],[11,-11],[-11,11],[11,11]]) { ctx.beginPath(); ctx.arc(x,y,5,0,Math.PI*2); ctx.fill(); ctx.stroke(); }
+    ctx.fillStyle = '#eaffff'; roundRect(-5,-7,10,14,3); ctx.fill();
+    ctx.fillStyle = '#35d6d0'; ctx.beginPath(); ctx.moveTo(0,-13); ctx.lineTo(-4,-6); ctx.lineTo(4,-6); ctx.fill();
+    ctx.restore();
+  }
+
+  function drawProjectile(s, tr) {
+    if (!s.projectile?.released) return;
+    const impact = tr.point(s.projectile.impact_x, s.projectile.impact_y);
+    ctx.strokeStyle = 'rgba(255,189,87,.45)'; ctx.lineWidth = 1.5; ctx.setLineDash([4,5]);
+    ctx.beginPath(); ctx.arc(impact.x, impact.y, 13, 0, Math.PI*2); ctx.stroke(); ctx.setLineDash([]);
+    if (s.projectile.active) {
+      const p = tr.point(s.projectile.x, s.projectile.y);
+      ctx.fillStyle = '#ffbd57'; ctx.shadowColor = '#ff9f43'; ctx.shadowBlur = 20;
+      ctx.beginPath(); ctx.arc(p.x, p.y, 5, 0, Math.PI*2); ctx.fill(); ctx.shadowBlur = 0;
+    }
+    if (s.impact?.active) drawExplosion(impact.x, impact.y, s.impact.progress || 0);
+  }
+
+  function drawReplayMarkers(s, tr) {
+    if (!s.replay) return;
+    const marker = (point, color, label) => {
+      if (!point || !Number.isFinite(+point.x) || !Number.isFinite(+point.y)) return;
+      const p = tr.point(point.x, point.y);
+      ctx.fillStyle = color; ctx.strokeStyle = '#061016'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(p.x, p.y, 6, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#eaf8fb'; ctx.font = '700 10px Segoe UI'; ctx.textAlign = 'left';
+      ctx.fillText(label, p.x + 9, p.y - 7);
+    };
+    marker(s.replay.aimPoint, '#4d9cff', 'AIM');
+    marker(s.replay.dropPoint, '#ffbd57', 'DROP');
+  }
+
+  function drawExplosion(x, y, progress) {
+    const pulse = Math.sin(Math.min(1, progress) * Math.PI);
+    const radius = 16 + pulse * 48;
+    const g = ctx.createRadialGradient(x, y, 1, x, y, radius);
+    g.addColorStop(0, 'rgba(255,255,220,.98)');
+    g.addColorStop(.18, 'rgba(255,190,65,.95)');
+    g.addColorStop(.55, 'rgba(255,74,36,.68)');
+    g.addColorStop(1, 'rgba(51,18,11,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(x, y, radius, 0, Math.PI*2); ctx.fill();
+    for (let i=0;i<14;i++) {
+      const a = i * 2.399, r = radius * (.35 + (i%5)/8);
+      ctx.fillStyle = i%3 ? 'rgba(255,170,55,.8)' : 'rgba(255,242,182,.9)';
+      ctx.beginPath(); ctx.arc(x+Math.cos(a)*r, y+Math.sin(a)*r, 2+(i%3), 0, Math.PI*2); ctx.fill();
+    }
+  }
+
+  function draw() {
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    ctx.clearRect(0, 0, w, h);
+    const tr = transformFor(state, w, h);
+    drawGrid(w, h, tr);
+    drawReference(comparisonReference, tr);
+    drawTrail(comparisonActual, tr, '#35d6d0', 3.1);
+    for (const [id, points] of trails.targets) drawTrail(points, tr, `${colors[(id-1)%colors.length]}55`, 1.4);
+    if (!comparisonReport) drawTrail(trails.drone, tr, 'rgba(53,214,208,.65)', 2.3);
+    drawTrail(trails.projectile, tr, 'rgba(255,189,87,.9)', 2.2);
+    if (state.connected && state.drone) {
+      const selected = (state.targets || []).find(t => t.selected);
+      if (selected) {
+        const a = tr.point(state.drone.x,state.drone.y), b = tr.point(selected.x,selected.y);
+        ctx.strokeStyle='rgba(255,95,109,.25)'; ctx.setLineDash([6,7]); ctx.beginPath(); ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();ctx.setLineDash([]);
+      }
+      (state.targets || []).forEach((t,i) => drawCar(t,tr,i));
+      drawProjectile(state,tr); drawReplayMarkers(state,tr); drawDrone(state.drone,tr);
+    }
+    requestAnimationFrame(draw);
+  }
+  requestAnimationFrame(draw);
+
+  function fmt(v, digits=1) { return Number.isFinite(+v) ? (+v).toFixed(digits) : '—'; }
+  function updateUI(s) {
+    const connected = !!s.connected;
+    const connection = document.getElementById('connection');
+    connection.classList.toggle('online', connected);
+    connection.querySelector('span:last-child').textContent = s.source === 'simulation.json' ?
+      'simulation.json' : (connected ? 'AirSim онлайн' : 'Немає телеметрії');
+    document.getElementById('phase').textContent = phaseLabels[s.phase] || String(s.phase || 'OFFLINE').toUpperCase();
+    document.getElementById('scenario').textContent = s.scenario || 'Очікування даних';
+    if (displayMode === 'live' && s.scenario && !curveSelect.dataset.touched) {
+      const matchingOption = [...curveSelect.options].find(o => o.textContent === s.scenario);
+      if (matchingOption) curveSelect.value = matchingOption.value;
+    }
+    if (displayMode === 'live' && s.ammo && !ammoSelect.dataset.touched) {
+      const matchingAmmo = [...ammoSelect.options].find(o => o.value === s.ammo);
+      if (matchingAmmo) ammoSelect.value = matchingAmmo.value;
+    }
+    const d = s.drone || {};
+    document.getElementById('coords').textContent = `X ${fmt(d.x)}   Y ${fmt(d.y)}   H ${fmt(d.z)} м`;
+    document.getElementById('altitude').innerHTML = `${fmt(d.z)} <small>м</small>`;
+    document.getElementById('speed').innerHTML = `${fmt(d.speed)} <small>м/с</small>`;
+    document.getElementById('time').innerHTML = `${fmt(s.sim_time)} <small>с</small>`;
+    document.getElementById('target').textContent = s.selected_target ? `T${s.selected_target}` : '—';
+    document.getElementById('ammo').textContent = s.ammo || '—';
+    document.getElementById('targetCount').textContent = s.targets?.length ?? '—';
+
+    const panel = document.getElementById('result');
+    panel.classList.remove('hit','miss');
+    if (s.result?.ready) {
+      panel.classList.add(s.result.hit ? 'hit' : 'miss');
+      document.getElementById('resultMain').textContent = s.result.hit ? 'HIT' : 'MISS';
+      document.getElementById('resultDetail').textContent =
+        `Ціль T${s.result.target} · похибка ${fmt(s.result.error,2)} м · межа ${fmt(s.result.limit,2)} м`;
+    } else if (s.source === 'simulation.json') {
+      document.getElementById('resultMain').textContent = 'ВІДТВОРЕННЯ JSON';
+      document.getElementById('resultDetail').textContent =
+        `Кадр ${s.replay?.index ?? 0} із ${s.replay?.total ?? 0}. Файл не містить підтвердженого HIT/MISS.`;
+    } else {
+      document.getElementById('resultMain').textContent = s.phase === 'projectile' ? 'БОЄПРИПАС У ПОЛЬОТІ' : 'ОЧІКУВАННЯ';
+      document.getElementById('resultDetail').textContent = connected ? 'Система отримує живу телеметрію AirSim.' : 'Запусти сценарій для отримання даних.';
+    }
+  }
+
+  async function poll() {
+    try {
+      const response = await fetch('/api/state', { cache: 'no-store' });
+      const next = await response.json();
+      next.connected = next.connected !== false;
+      if (displayMode === 'live') {
+        state = next; lastPacketAt = performance.now(); updateTrails(state); updateUI(state);
+      }
+    } catch (_) {
+      if (displayMode === 'live') {
+        state = { connected:false, phase:'offline' }; updateUI(state);
+      }
+    }
+  }
+  setInterval(poll, 100); poll();
+
+  function renderResults(rows) {
+    const body = document.getElementById('resultsBody');
+    body.replaceChildren();
+    if (!Array.isArray(rows) || rows.length === 0) {
+      const tr = document.createElement('tr'), td = document.createElement('td');
+      td.colSpan = 4; td.className = 'empty-row'; td.textContent = 'Ще немає запусків';
+      tr.appendChild(td); body.appendChild(tr); return;
+    }
+    rows.slice(0, 5).forEach(row => {
+      const tr = document.createElement('tr');
+      const values = [row.Scenario, row.Target ? `T${row.Target}` : '—',
+        row.ErrorM ? `${Number(row.ErrorM).toFixed(2)} м` : '—', row.Result || '—'];
+      values.forEach((value, index) => {
+        const td = document.createElement('td'); td.textContent = value;
+        if (index === 0) td.title = row.Scenario || '';
+        if (index === 3) td.className = row.Result === 'HIT' ? 'status-hit' : 'status-miss';
+        tr.appendChild(td);
+      });
+      body.appendChild(tr);
+    });
+  }
+
+  async function pollResults() {
+    try {
+      const response = await fetch('/api/results', { cache: 'no-store' });
+      renderResults(await response.json());
+    } catch (_) {}
+  }
+  setInterval(pollResults, 1000); pollResults();
+
+  async function action(path, button) {
+    if (actionBusy) return;
+    actionBusy = true; button.disabled = true;
+    try { await fetch(path, { method:'POST' }); }
+    finally { setTimeout(() => { actionBusy=false; button.disabled=false; }, 1600); }
+  }
+
+  function stopReplay() {
+    if (replayTimer) clearInterval(replayTimer);
+    replayTimer = null; replayDocument = null; displayMode = 'live'; resetTrails(); previousRun = null;
+  }
+
+  function clearComparison() {
+    comparisonReference = []; comparisonActual = []; comparisonReport = null;
+    document.getElementById('comparison').hidden = true;
+    document.getElementById('referenceLegend').hidden = true;
+    document.getElementById('compareStatus').textContent =
+      'Для порівняння вибери CSV-журнал ДЗ11. Файл не надсилається на сервер.';
+  }
+
+  function validatePath(points, label, maxPoints = 2000) {
+    if (!Array.isArray(points) || points.length < 2 || points.length > maxPoints) {
+      throw new Error(`${label}: потрібно від 2 до ${maxPoints} точок.`);
+    }
+    let previousTime = -Infinity;
+    return points.map((p, i) => {
+      if (!p || typeof p.x !== 'number' || typeof p.y !== 'number' || typeof p.t !== 'number') {
+        throw new Error(`${label}: відсутні числові координати або час у записі ${i + 1}.`);
+      }
+      const x = Number(p.x), y = Number(p.y), t = Number(p.t);
+      if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(t) ||
+          t <= previousTime) {
+        throw new Error(`${label}: некоректна точка або час у записі ${i + 1}.`);
+      }
+      previousTime = t;
+      return { x, y, t };
+    });
+  }
+
+  function pathLength(points) {
+    let length = 0;
+    for (let i = 1; i < points.length; i++) {
+      length += Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
+    }
+    return length;
+  }
+
+  function pointToSegmentDistance(p, a, b) {
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const lengthSquared = dx * dx + dy * dy;
+    const fraction = lengthSquared === 0 ? 0 :
+      Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / lengthSquared));
+    return Math.hypot(p.x - (a.x + fraction * dx), p.y - (a.y + fraction * dy));
+  }
+
+  function comparePaths(reference, actual) {
+    const distances = actual.map(point => {
+      let best = Infinity;
+      for (let i = 1; i < reference.length; i++) {
+        best = Math.min(best, pointToSegmentDistance(point, reference[i - 1], reference[i]));
+      }
+      return best;
+    });
+    const sorted = [...distances].sort((a, b) => a - b);
+    return {
+      mean_m: distances.reduce((sum, value) => sum + value, 0) / distances.length,
+      p95_m: sorted[Math.ceil(.95 * sorted.length) - 1],
+      max_m: sorted[sorted.length - 1],
+      reference_samples: reference.length,
+      actual_samples: actual.length,
+      reference_length_m: pathLength(reference),
+      actual_length_m: pathLength(actual),
+      reference_duration_s: reference.at(-1).t - reference[0].t,
+      actual_duration_s: actual.at(-1).t - actual[0].t
+    };
+  }
+  window.courseworkComparePaths = comparePaths;
+
+  async function compareRun(button) {
+    const status = document.getElementById('compareStatus');
+    const input = document.getElementById('hw11TelemetryFile');
+    clearComparison();
+    if (!input.files.length) { status.textContent = 'Спочатку вибери CSV-журнал телеметрії ДЗ11.'; return; }
+    if (!document.getElementById('sameScenario').checked) {
+      status.textContent = 'Підтверди однакові умови, координати та ділянку польоту ДЗ11 й AirSim.'; return;
+    }
+    button.disabled = true;
+    try {
+      if (input.files[0].size > 5_000_000) throw new Error('Файл завеликий (межа 5 МБ).');
+      const reference = Hw11Telemetry.parse(await input.files[0].text());
+      const response = await fetch('/api/trace', { cache: 'no-store' });
+      if (!response.ok) throw new Error('Сервер не віддає запис фактичного шляху AirSim.');
+      const trace = await response.json();
+      if (trace.schema !== 1 || !trace.run_id) throw new Error('Ще немає записаного запуску AirSim.');
+      const actual = validatePath(trace.samples, 'AirSim', 5000);
+      const metrics = comparePaths(reference, actual);
+      stopReplay();
+      comparisonReference = reference; comparisonActual = actual;
+      comparisonReport = {
+        schema: 2, created_at: new Date().toISOString(),
+        reference_source: 'hw11-telemetry-v1', comparison_plane: 'XY',
+        reference_file: input.files[0].name, airsim_run_id: trace.run_id,
+        airsim_scenario: trace.scenario || null,
+        matching_initial_conditions_confirmed_by_user: true,
+        metric: 'Відстань від кожної точки AirSim до найближчого сегмента записаного шляху ДЗ11',
+        metrics,
+        caveat: 'Геометричне порівняння без синхронізації часу; не доводить правильний напрям чи порядок руху та не є оцінкою точності ураження.'
+      };
+      document.getElementById('compareMean').textContent = `${fmt(metrics.mean_m, 2)} м`;
+      document.getElementById('compareP95').textContent = `${fmt(metrics.p95_m, 2)} м`;
+      document.getElementById('compareMax').textContent = `${fmt(metrics.max_m, 2)} м`;
+      document.getElementById('compareCounts').textContent =
+        `${metrics.reference_samples} / ${metrics.actual_samples}`;
+      document.getElementById('compareRefTime').textContent = `${fmt(metrics.reference_duration_s, 1)} с`;
+      document.getElementById('compareLiveTime').textContent = `${fmt(metrics.actual_duration_s, 1)} с`;
+      document.getElementById('compareNote').textContent =
+        `Довжина шляху XY: ДЗ11 ${fmt(metrics.reference_length_m, 1)} м, AirSim ${fmt(metrics.actual_length_m, 1)} м. ` + comparisonReport.caveat;
+      document.getElementById('comparison').hidden = false;
+      document.getElementById('referenceLegend').hidden = false;
+      status.textContent = `Порівняно з запуском AirSim ${trace.run_id}. Фіолетова лінія — запис телеметрії ДЗ11, блакитна — AirSim.`;
+    } catch (error) {
+      clearComparison();
+      status.textContent = `Не вдалося порівняти: ${error.message}`;
+    } finally { button.disabled = false; }
+  }
+
+  function saveComparison() {
+    if (!comparisonReport) return;
+    const blob = new Blob([JSON.stringify(comparisonReport, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url; link.download = 'trajectory-comparison.json'; link.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function replayBounds(steps) {
+    const points = [];
+    for (const step of steps) {
+      for (const key of ['position', 'predictedTarget', 'aimPoint', 'dropPoint']) {
+        const p = step[key];
+        if (p && Number.isFinite(+p.x) && Number.isFinite(+p.y)) points.push(p);
+      }
+    }
+    const xs = points.map(p => +p.x), ys = points.map(p => +p.y);
+    return {
+      min_x: Math.min(...xs), max_x: Math.max(...xs),
+      min_y: Math.min(...ys), max_y: Math.max(...ys)
+    };
+  }
+
+  function replayStep(index) {
+    const steps = replayDocument.steps;
+    const step = steps[Math.min(index, steps.length - 1)];
+    const prior = index > 0 ? steps[index - 1] : step;
+    const dt = Math.max(.001, (+step.timeSecSinceStart || 0) - (+prior.timeSecSinceStart || 0));
+    const speed = Math.hypot(+step.position.x - +prior.position.x,
+      +step.position.y - +prior.position.y) / dt;
+    const targetId = Number.isInteger(+step.targetIndex) ? +step.targetIndex + 1 : 1;
+    const predicted = step.predictedTarget || step.aimPoint || step.dropPoint;
+    state = {
+      connected: true, source: 'simulation.json', phase: 'replay',
+      run_id: replayDocument.runId, scenario: replayDocument.name,
+      sim_time: +step.timeSecSinceStart || 0, ammo: '—', bounds: replayDocument.bounds,
+      drone: { x:+step.position.x, y:+step.position.y, z:null, speed, heading:+step.direction || 0 },
+      targets: predicted ? [{ id:targetId, x:+predicted.x, y:+predicted.y, selected:true, destroyed:false }] : [],
+      selected_target: targetId,
+      projectile: { released:false, active:false }, impact: { active:false, progress:0 },
+      result: { ready:false },
+      replay: { index:index + 1, total:steps.length, aimPoint:step.aimPoint, dropPoint:step.dropPoint }
+    };
+    updateTrails(state); updateUI(state);
+  }
+
+  function startReplayDocument(parsed, fileName = 'simulation.json') {
+    if (!Array.isArray(parsed.steps) || parsed.steps.length === 0 ||
+        parsed.steps.some(step => !step.position || !Number.isFinite(+step.position.x) || !Number.isFinite(+step.position.y))) {
+      throw new Error('очікується непорожній масив steps із position.x та position.y');
+    }
+    stopReplay(); clearComparison(); displayMode = 'replay'; resetTrails(); previousRun = null;
+    replayDocument = {
+      steps: parsed.steps, bounds: replayBounds(parsed.steps),
+      name: fileName, runId: `json-${Date.now()}`
+    };
+    let index = 0; replayStep(index);
+    replayTimer = setInterval(() => {
+      index += 1;
+      if (index >= replayDocument.steps.length) {
+        clearInterval(replayTimer); replayTimer = null;
+        document.getElementById('fileStatus').textContent =
+          `Відтворення завершено: ${replayDocument.steps.length} кадрів.`;
+        return;
+      }
+      replayStep(index);
+    }, 100);
+    return parsed.steps.length;
+  }
+  window.courseworkReplay = startReplayDocument;
+
+  async function startJsonReplay(button) {
+    const input = document.getElementById('simulationFile');
+    const status = document.getElementById('fileStatus');
+    if (!input.files.length) { status.textContent = 'Спочатку вибери simulation.json.'; return; }
+    button.disabled = true;
+    try {
+      const parsed = JSON.parse(await input.files[0].text());
+      const frameCount = startReplayDocument(parsed, input.files[0].name);
+      status.textContent = `Завантажено ${frameCount} кадрів. Відтворення у вебпанелі.`;
+    } catch (error) {
+      displayMode = 'live'; status.textContent = `Помилка JSON: ${error.message}`;
+    } finally { button.disabled = false; }
+  }
+
+  document.getElementById('restart').addEventListener('click', e => {
+    stopReplay(); clearComparison();
+    const curveId = encodeURIComponent(curveSelect.value);
+    const ammo = encodeURIComponent(ammoSelect.value);
+    curveSelect.dataset.touched = ''; ammoSelect.dataset.touched = '';
+    action(`/api/restart?curve_id=${curveId}&ammo=${ammo}`, e.currentTarget);
+  });
+  document.getElementById('playJson').addEventListener('click', e => startJsonReplay(e.currentTarget));
+  document.getElementById('compareRun').addEventListener('click', e => compareRun(e.currentTarget));
+  document.getElementById('hw11TelemetryFile').addEventListener('change', () => {
+    clearComparison();
+    document.getElementById('sameScenario').checked = false;
+  });
+  document.getElementById('saveComparison').addEventListener('click', saveComparison);
+  document.getElementById('stop').addEventListener('click', e => { stopReplay(); action('/api/stop', e.currentTarget); });
+  document.getElementById('close').addEventListener('click', e => { stopReplay(); action('/api/close', e.currentTarget); });
+</script>
+</body>
+</html>

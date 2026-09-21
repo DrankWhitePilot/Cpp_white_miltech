@@ -7,6 +7,7 @@
 #include "drone_controller.hpp"
 #include "drone_link.h"
 #include "gpio_controller.hpp"
+#include "telemetry_log.hpp"
 #include "uart_link.hpp"
 
 namespace
@@ -17,6 +18,7 @@ struct Args
     std::string gpiochip = "gpiochip1";
     int startLine = 24;
     int dropLine = 23;
+    std::string telemetryLog;
 };
 
 bool parseArgs(int argc, char* argv[], Args& args)
@@ -32,6 +34,8 @@ bool parseArgs(int argc, char* argv[], Args& args)
             args.startLine = std::stoi(argv[++i]);
         } else if (key == "--drop-line" && i + 1 < argc) {
             args.dropLine = std::stoi(argv[++i]);
+        } else if (key == "--telemetry-log" && i + 1 < argc) {
+            args.telemetryLog = argv[++i];
         } else {
             std::cerr << "Unknown or incomplete argument: " << key << "\n";
             return false;
@@ -58,9 +62,17 @@ int main(int argc, char* argv[])
     Args args;
     if (!parseArgs(argc, argv, args)) {
         std::cerr << "Usage: mission_uart_drop --uart /tmp/ttyA --gpiochip gpiochipN "
-                  << "--start-line 24 --drop-line 23\n";
+                  << "--start-line 24 --drop-line 23 [--telemetry-log NEW_FILE.csv]\n";
         return 1;
     }
+
+    TelemetryLog telemetryLog;
+    if (!telemetryLog.open(args.telemetryLog)) {
+        std::cerr << "Cannot create telemetry log (use a new writable path): "
+                  << args.telemetryLog << '\n';
+        return 1;
+    }
+    bool telemetryWarningShown = false;
 
     UartLink uart(args.uart);
     if (!uart.openPort()) {
@@ -90,6 +102,11 @@ int main(int argc, char* argv[])
             if (packet.type == dlink::PKT_TELEMETRY) {
                 dlink::Telemetry telemetry{};
                 if (copyPayload(packet, telemetry)) {
+                    if (!telemetryLog.append(telemetry) && !telemetryWarningShown) {
+                        std::cerr << "Telemetry log: invalid sample or write failure; "
+                                  << "the log may be incomplete.\n";
+                        telemetryWarningShown = true;
+                    }
                     controller.updateTelemetry(telemetry);
 
                     const ControlDecision decision = controller.decide();

@@ -1,0 +1,30 @@
+{
+  "SettingsVersion": 1.2,
+  "SimMode": "Multirotor",
+  "ViewMode": "Manual",
+  "RpcEnabled": true,
+  "CameraDirector": {
+    "X": -50.0,
+    "Y": 0.0,
+    "Z": -140.0,
+    "Pitch": -70.0,
+    "Roll": 0.0,
+    "Yaw": 0.0
+  },
+  "CameraDefaults": {
+    "CaptureSettings": [
+      {
+        "ImageType": -1,
+        "Width": 1920,
+        "Height": 1080,
+        "FOV_Degrees": 90,
+        "AutoExposureSpeed": 100,
+        "AutoExposureBias": -1.5,
+        "AutoExposureMaxBrightness": 0.35,
+        "AutoExposureMinBrightness": 0.10,
+        "MotionBlurAmount": 0,
+        "TargetGamma": 0.8
+      }
+    ]
+  }
+}
