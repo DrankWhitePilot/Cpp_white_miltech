@@ -11,6 +11,7 @@ $ErrorActionPreference = "Stop"
 $config = Get-CourseworkConfig -Directory $PSScriptRoot
 $distro = $config.Distro
 $linuxUser = $config.LinuxUser
+$containerName = $config.ContainerName
 $project = $config.LinuxProject
 $airSimExe = $config.SceneExe
 $dashboardUrl = "http://127.0.0.1:8080/"
@@ -66,15 +67,18 @@ if (-not $dashboardOnline -and (Test-Path -LiteralPath $dashboardServer)) {
 }
 
 $container = $null
-$containerNames = @(& wsl.exe -d $distro -u $linuxUser -- docker ps --format "{{.Names}}")
-foreach ($name in $containerNames) {
-  if ([string]::IsNullOrWhiteSpace($name)) {
-    continue
-  }
-  & wsl.exe -d $distro -u $linuxUser -- docker exec $name test -d "$project/coursework_ros" 2>$null
+if ($containerName) {
+  & wsl.exe -d $distro -u $linuxUser -- docker inspect $containerName 2>$null | Out-Null
   if ($LASTEXITCODE -eq 0) {
-    $container = $name.Trim()
-    break
+    & wsl.exe -d $distro -u $linuxUser -- docker start $containerName | Out-Null
+    $container = $containerName
+  }
+} else {
+  $containerNames = @(& wsl.exe -d $distro -u $linuxUser -- docker ps --format "{{.Names}}")
+  foreach ($name in $containerNames) {
+    if ([string]::IsNullOrWhiteSpace($name)) { continue }
+    & wsl.exe -d $distro -u $linuxUser -- docker exec $name test -d "$project/coursework_ros" 2>$null
+    if ($LASTEXITCODE -eq 0) { $container = $name.Trim(); break }
   }
 }
 
@@ -141,19 +145,20 @@ for ($attempt = 0; $attempt -lt 60; ++$attempt) {
     grep -q "ONLINE START" $remoteLog 2>$null
   if ($LASTEXITCODE -eq 0) {
     Write-Host "DEMO STARTED. Watch the AirSim window." -ForegroundColor Green
+    # The web launch path may start the scene without START_COURSEWORK.ps1.
+    # Start the camera bridge here too; its mutex prevents duplicate streams.
+    $cameraFeed = Join-Path $PSScriptRoot 'CAMERA_FEED.ps1'
+    if (Test-Path -LiteralPath $cameraFeed -PathType Leaf) {
+      Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @(
+        '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$cameraFeed`"") | Out-Null
+    }
     Write-Host "J restarts the selected curves and ammunition. Esc closes AirSim and stops ROS."
     $hotkeyScript = Join-Path $PSScriptRoot "AIRSIM_HOTKEYS.ps1"
     if (Test-Path -LiteralPath $hotkeyScript) {
       Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @(
         "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$hotkeyScript`"")
     }
-    Add-Type -AssemblyName Microsoft.VisualBasic
-    $airSimWindow = Get-Process -Name "MSBuild2018" -ErrorAction SilentlyContinue |
-      Where-Object { $_.MainWindowHandle -ne 0 } |
-      Select-Object -First 1
-    if ($airSimWindow) {
-      [Microsoft.VisualBasic.Interaction]::AppActivate($airSimWindow.Id) | Out-Null
-    }
+    # The browser is the primary UI; AirSim stays in the background as the simulator.
     if (-not $NoBrowser) {
       Start-Process $dashboardUrl
     }

@@ -10,6 +10,7 @@ coursework_ros/windows/coursework.local.json
 coursework_ros/windows/current_curves.txt
 coursework_ros/windows/current_ammo.txt
 coursework_ros/windows/results/
+coursework_ros/windows/web/
 
 # CMake генерує ці файли при in-source або ручних локальних збірках.
 CMakeCache.txt

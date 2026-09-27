@@ -7,7 +7,9 @@ $ErrorActionPreference = "Stop"
 
 $httpPort = $HttpPort
 $udpPort = $UdpPort
-$dashboardFile = Join-Path $PSScriptRoot "dashboard\index.html"
+$combinedDashboard = Join-Path $PSScriptRoot "dashboard\combined.html"
+$dashboardFile = if (Test-Path -LiteralPath $combinedDashboard -PathType Leaf) { $combinedDashboard } else { Join-Path $PSScriptRoot "dashboard\index.html" }
+$cameraLiveDir = Join-Path $PSScriptRoot 'web\live'
 $restartScript = Join-Path $PSScriptRoot "RESTART_DEMO.ps1"
 $resultsDirectory = Join-Path $PSScriptRoot "results"
 $resultsFile = Join-Path $resultsDirectory "coursework_results.csv"
@@ -53,6 +55,12 @@ function Write-Response {
 }
 
 function Stop-CourseworkRos {
+  if ($config.ContainerName) {
+    & wsl.exe -d $distro -u $linuxUser -- docker exec $config.ContainerName `
+      pkill -SIGINT -f "[r]os2 launch coursework_guidance_ros airsim_online.launch.xml" `
+      2>$null
+    return
+  }
   $names = @(& wsl.exe -d $distro -u $linuxUser -- docker ps --format "{{.Names}}")
   foreach ($name in $names) {
     if ([string]::IsNullOrWhiteSpace($name)) {
@@ -101,10 +109,6 @@ try {
   $remoteEndpoint = [System.Net.IPEndPoint]::new([System.Net.IPAddress]::Any, 0)
   $latestState = '{"connected":false,"phase":"offline"}'
   $lastTelemetryAt = [DateTime]::MinValue
-  $traceRunId = ""
-  $traceScenario = ""
-  $traceSamples = [System.Collections.Generic.List[object]]::new()
-  $lastTraceTime = [double]::NegativeInfinity
 
   $listener.Start()
   $pendingContext = $listener.GetContextAsync()
@@ -119,37 +123,6 @@ try {
         try {
           $decoded = $latestState | ConvertFrom-Json
           $runId = [string]$decoded.run_id
-          if ($runId -and $runId -ne $traceRunId) {
-            $traceRunId = $runId
-            $traceScenario = [string]$decoded.scenario
-            $traceSamples.Clear()
-            $lastTraceTime = [double]::NegativeInfinity
-          }
-          if ($runId -and $decoded.drone -and
-            $decoded.phase -in @("preparing", "guidance") -and
-            $null -ne $decoded.sim_time -and
-            $null -ne $decoded.drone.x -and $null -ne $decoded.drone.y)
-          {
-            $sampleTime = [double]$decoded.sim_time
-            $sampleX = [double]$decoded.drone.x
-            $sampleY = [double]$decoded.drone.y
-            if (-not [double]::IsNaN($sampleTime) -and
-              -not [double]::IsInfinity($sampleTime) -and
-              -not [double]::IsNaN($sampleX) -and
-              -not [double]::IsInfinity($sampleX) -and
-              -not [double]::IsNaN($sampleY) -and
-              -not [double]::IsInfinity($sampleY) -and
-              $sampleTime -gt $lastTraceTime)
-            {
-              $traceSamples.Add([pscustomobject]@{
-                t = $sampleTime
-                x = $sampleX
-                y = $sampleY
-              })
-              $lastTraceTime = $sampleTime
-              if ($traceSamples.Count -gt 5000) { $traceSamples.RemoveAt(0) }
-            }
-          }
           if ($decoded.phase -eq "complete" -and $decoded.result.ready -and
             $runId -and $loggedRunIds.Add($runId))
           {
@@ -200,19 +173,22 @@ try {
           Write-Response $context 200 "application/json" $latestState
         }
       } elseif ($method -eq "GET" -and $path -eq "/api/health") {
-        Write-Response $context 200 "application/json" '{"ok":true}'
+        Write-Response $context 200 "application/json" '{"ok":true,"app":"coursework-dashboard"}'
+      } elseif ($method -eq "GET" -and $path -eq "/api/camera") {
+        $cameraFile = if ($cameraLiveDir) { Join-Path $cameraLiveDir 'camera.json' } else { $null }
+        if ($cameraFile -and (Test-Path -LiteralPath $cameraFile -PathType Leaf)) {
+          try {
+            Write-Response $context 200 "application/json" ([IO.File]::ReadAllText($cameraFile, [Text.Encoding]::UTF8))
+          } catch {
+            Write-Response $context 503 "application/json" '{"error":"camera frame temporarily unavailable"}'
+          }
+        } else {
+          Write-Response $context 503 "application/json" '{"error":"camera not connected"}'
+        }
       } elseif ($method -eq "GET" -and $path -eq "/api/results") {
         $recentResults = @($results | Select-Object -First 25)
         Write-Response $context 200 "application/json" (
           ConvertTo-Json -InputObject $recentResults -Compress)
-      } elseif ($method -eq "GET" -and $path -eq "/api/trace") {
-        Write-Response $context 200 "application/json" (
-          ConvertTo-Json -InputObject ([pscustomobject]@{
-            schema = 1
-            run_id = $traceRunId
-            scenario = $traceScenario
-            samples = @($traceSamples.ToArray())
-          }) -Depth 5 -Compress)
       } elseif ($method -eq "POST" -and $path -eq "/api/restart") {
         $curveId = [string]$context.Request.QueryString["curve_id"]
         $ammo = [string]$context.Request.QueryString["ammo"]
@@ -238,7 +214,7 @@ try {
         Stop-CourseworkRos
         Get-Process -Name "MSBuild2018" -ErrorAction SilentlyContinue | Stop-Process -Force
         Write-Response $context 200 "application/json" '{"closed":true}'
-        $running = $false
+        # Keep the local control page available for another launch.
       } else {
         Write-Response $context 404 "application/json" '{"error":"not found"}'
       }

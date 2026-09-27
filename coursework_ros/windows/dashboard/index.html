@@ -68,6 +68,12 @@
     }
     .map-card { position: relative; min-height: 0; }
     #map { width: 100%; height: 100%; display: block; }
+    #map[hidden] { display: none; }
+    #airsimFrame { width: 100%; height: 100%; object-fit: contain; background: #071018; display: block; }
+    #airsimFrame[hidden] { display: none; }
+    .camera-empty { position: absolute; inset: 0; display: grid; place-items: center;
+      text-align: center; padding: 24px; color: var(--muted); font-size: 14px; line-height: 1.5; }
+    .camera-empty[hidden] { display: none; }
     .map-top {
       position: absolute; top: 16px; left: 16px; right: 16px;
       display: flex; justify-content: space-between; pointer-events: none;
@@ -134,18 +140,6 @@
       background: rgba(53,214,208,.16); color: var(--cyan); cursor: pointer;
     }
     .file-status { min-height: 14px; margin: -4px 0 11px; color: var(--muted); font-size: 10px; }
-    .compare-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
-    .compare-confirm { display: flex; align-items: flex-start; gap: 8px; margin: 10px 0;
-      color: var(--muted); font-size: 11px; line-height: 1.35; }
-    .compare-confirm input { margin-top: 1px; accent-color: var(--cyan); }
-    .compare-block { margin-top: 12px; padding: 12px; border: 1px solid rgba(53,214,208,.25);
-      border-radius: 11px; background: rgba(53,214,208,.045); }
-    .compare-block[hidden] { display: none; }
-    .compare-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-    .compare-grid div { border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
-    .compare-grid span { display: block; color: var(--muted); font-size: 10px; }
-    .compare-grid strong { display: block; margin-top: 3px; font-size: 15px; }
-    .compare-note { margin: 10px 0; color: var(--muted); font-size: 10px; line-height: 1.4; }
     .history { padding-bottom: 12px; }
     .table-wrap { overflow: hidden; border: 1px solid rgba(143,180,199,.11); border-radius: 10px; }
     table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 10px; }
@@ -156,11 +150,13 @@
     .status-hit { color: var(--green); font-weight: 800; }
     .status-miss { color: var(--red); font-weight: 800; }
     .empty-row { color: var(--muted); text-align: center; padding: 12px; }
-    .buttons { display: grid; grid-template-columns: 1.25fr 1fr 1fr; gap: 8px; }
+    .buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .buttons .primary { grid-column: 1 / -1; }
     button {
       appearance: none; border: 1px solid var(--line); border-radius: 11px;
-      min-height: 45px; padding: 0 14px; cursor: pointer; color: var(--text);
-      background: rgba(255,255,255,.045); font: 700 12px inherit;
+      min-height: 44px; padding: 0 10px; cursor: pointer; color: var(--text);
+      background: rgba(255,255,255,.045); font-family: "Segoe UI", system-ui, sans-serif;
+      font-size: 12px; font-weight: 700; line-height: 1.15; white-space: nowrap;
       transition: transform .15s ease, border-color .15s ease, background .15s ease;
     }
     button:hover { transform: translateY(-1px); border-color: rgba(53,214,208,.5); }
@@ -193,16 +189,12 @@
 
   <main>
     <section class="map-card">
-      <canvas id="map"></canvas>
+      <canvas id="map" hidden></canvas>
+      <img id="airsimFrame" alt="Живий кадр камери AirSim" hidden>
+      <div id="cameraEmpty" class="camera-empty">Очікування камери AirSim. Обери параметри й натисни «ЗАПУСТИТИ СИМУЛЯЦІЮ».</div>
       <div class="map-top">
         <div class="glass"><div class="eyebrow">СЦЕНАРІЙ</div><div id="scenario" class="scenario-name">Очікування даних</div></div>
         <div id="coords" class="glass coords">X — &nbsp; Y — &nbsp; H —</div>
-      </div>
-      <div class="legend">
-        <span><i style="background:#35d6d0"></i>Дрон</span>
-        <span><i style="background:#ffbd57"></i>Боєприпас</span>
-        <span><i style="background:#ff5f6d"></i>Обрана ціль</span>
-        <span id="referenceLegend" hidden><i style="background:#d6a6ff"></i>Телеметрія ДЗ11</span>
       </div>
     </section>
 
@@ -235,11 +227,11 @@
           </select>
         </div>
         <div class="buttons">
-          <button id="restart" class="primary">3. ЗАПУСТИТИ AIRSIM</button>
+          <button id="restart" class="primary">ЗАПУСТИТИ СИМУЛЯЦІЮ</button>
           <button id="stop" class="danger">ЗУПИНИТИ</button>
           <button id="close" class="danger">ЗАКРИТИ</button>
         </div>
-        <div class="hint">AirSim відкриється окремим вікном; результати з’являться тут.</div>
+        <div class="hint">Камера AirSim відображається ліворуч; решта стану — у цій панелі.</div>
         <div class="scenario-control" style="margin-top:16px">
           <label for="simulationFile">Свій simulation.json</label>
           <div class="file-row">
@@ -248,26 +240,6 @@
           </div>
         </div>
         <div id="fileStatus" class="file-status" role="status">simulation.json читається локально та використовується лише для відтворення.</div>
-        <div class="scenario-control" style="margin-top:16px">
-          <label for="hw11TelemetryFile">Телеметрія ДЗ11 (.csv)</label>
-          <input id="hw11TelemetryFile" type="file" accept=".csv,text/csv">
-        </div>
-        <label class="compare-confirm"><input id="sameScenario" type="checkbox">Записи ДЗ11 та AirSim мають однакові початкові умови, систему координат і охоплюють однакову ділянку польоту.</label>
-        <button id="compareRun" style="width:100%">ПОРІВНЯТИ З AIRSIM</button>
-        <div id="compareStatus" class="file-status" role="status">Для порівняння вибери CSV-журнал ДЗ11. Файл не надсилається на сервер.</div>
-        <div id="comparison" class="compare-block" hidden>
-          <div class="panel-title">ПОРІВНЯННЯ ТРАЄКТОРІЙ</div>
-          <div class="compare-grid">
-            <div><span>Середнє відхилення</span><strong id="compareMean">—</strong></div>
-            <div><span>95-й перцентиль</span><strong id="compareP95">—</strong></div>
-            <div><span>Найбільше відхилення</span><strong id="compareMax">—</strong></div>
-            <div><span>Точки ДЗ11 / AirSim</span><strong id="compareCounts">—</strong></div>
-            <div><span>Час ДЗ11</span><strong id="compareRefTime">—</strong></div>
-            <div><span>Час AirSim</span><strong id="compareLiveTime">—</strong></div>
-          </div>
-          <div id="compareNote" class="compare-note"></div>
-          <button id="saveComparison" style="width:100%">ЗБЕРЕГТИ ЗВІТ JSON</button>
-        </div>
       </section>
       <section class="panel">
         <div class="panel-title">ТЕЛЕМЕТРІЯ В РЕАЛЬНОМУ ЧАСІ</div>
@@ -302,40 +274,6 @@
 </div>
 
 <script>
-  // BEGIN HW11_TELEMETRY_PARSER
-  const Hw11Telemetry = (() => {
-    const header = 't_ms,x,y,z,vx,vy,speed,dir,state';
-    const numberPattern = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i;
-
-    function parse(text) {
-      const lines = text.replace(/^\uFEFF/, '').trim().split(/\r?\n/);
-      if (lines[0] !== '# hw11-telemetry-v1' || lines[1] !== header) {
-        throw new Error('Потрібен CSV-журнал телеметрії ДЗ11. simulation.json призначений лише для відтворення.');
-      }
-      const rows = lines.slice(2);
-      if (rows.length < 2 || rows.length > 5000) {
-        throw new Error('ДЗ11: потрібно від 2 до 5000 записів телеметрії одного польоту.');
-      }
-      let previousTime = -1;
-      return rows.map((line, index) => {
-        const fields = line.split(',');
-        if (fields.length !== 9 || fields.some(v => !numberPattern.test(v))) {
-          throw new Error(`ДЗ11: некоректні дані у рядку ${index + 3}.`);
-        }
-        const [ms, x, y, z, vx, vy, speed, dir, state] = fields.map(Number);
-        if ([ms, x, y, z, vx, vy, speed, dir, state].some(v => !Number.isFinite(v)) ||
-            !Number.isInteger(ms) || ms < 0 || ms > 4294967295 || ms <= previousTime ||
-            !Number.isInteger(state) || state < 0 || state > 255 || speed < 0) {
-          throw new Error(`ДЗ11: некоректне значення або час у рядку ${index + 3}. Час має зростати в межах одного польоту.`);
-        }
-        previousTime = ms;
-        return {t: ms / 1000, x, y, z, vx, vy, speed, dir, state};
-      });
-    }
-    return {parse};
-  })();
-  // END HW11_TELEMETRY_PARSER
-
   const canvas = document.getElementById('map');
   const ctx = canvas.getContext('2d');
   const colors = ['#ff5f6d', '#64e38b', '#4d9cff', '#e76de8', '#ff9f43'];
@@ -347,9 +285,7 @@
   let displayMode = 'live';
   let replayTimer = null;
   let replayDocument = null;
-  let comparisonReference = [];
-  let comparisonActual = [];
-  let comparisonReport = null;
+  let mapAnimationStarted = false;
   const curveSelect = document.getElementById('curveSelect');
   const ammoSelect = document.getElementById('ammoSelect');
   curveSelect.addEventListener('change', () => { curveSelect.dataset.touched = '1'; });
@@ -382,7 +318,6 @@
 
   function updateTrails(s) {
     if (!s.connected || !s.drone) return;
-    if (comparisonReport && comparisonReport.airsim_run_id !== s.run_id) clearComparison();
     if (previousRun !== s.run_id) { resetTrails(); previousRun = s.run_id; }
     pushPoint(trails.drone, { x: s.drone.x, y: s.drone.y });
     for (const t of s.targets || []) {
@@ -411,8 +346,6 @@
     trails.drone.forEach(includePoint);
     for (const points of trails.targets.values()) points.forEach(includePoint);
     trails.projectile.forEach(includePoint);
-    comparisonReference.forEach(includePoint);
-    comparisonActual.forEach(includePoint);
     if (s.projectile?.released) {
       includePoint({ x: s.projectile.impact_x, y: s.projectile.impact_y });
     }
@@ -451,19 +384,29 @@
     }
   }
 
+  function routeTransform(bounds, w, h) {
+    const margin = 48;
+    const spanX = Math.max(20, bounds.max_x - bounds.min_x);
+    const spanY = Math.max(20, bounds.max_y - bounds.min_y);
+    const minX = bounds.min_x - spanX * .12, maxX = bounds.max_x + spanX * .12;
+    const minY = bounds.min_y - spanY * .12, maxY = bounds.max_y + spanY * .12;
+    const scale = Math.max(.01, Math.min((w - margin * 2) / (maxX - minX),
+      (h - margin * 2) / (maxY - minY)));
+    const offsetX = (w - (maxX - minX) * scale) / 2;
+    const offsetY = (h - (maxY - minY) * scale) / 2;
+    return {
+      point: (x, y) => ({x: offsetX + (x - minX) * scale,
+        y: h - offsetY - (y - minY) * scale}),
+      minX, maxX, minY, maxY
+    };
+  }
+
   function drawTrail(points, tr, color, width = 2) {
     if (points.length < 2) return;
     ctx.strokeStyle = color; ctx.lineWidth = width; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
     ctx.beginPath();
     points.forEach((p, i) => { const q = tr.point(p.x, p.y); i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y); });
     ctx.stroke();
-  }
-
-  function drawReference(points, tr) {
-    if (points.length < 2) return;
-    ctx.save(); ctx.setLineDash([8, 6]);
-    drawTrail(points, tr, '#d6a6ff', 2.8);
-    ctx.restore();
   }
 
   function drawCar(t, tr, index) {
@@ -539,14 +482,23 @@
   }
 
   function draw() {
+    if (canvas.hidden) { mapAnimationStarted = false; return; }
     const w = canvas.clientWidth, h = canvas.clientHeight;
+    if (displayMode === 'replay' && replayDocument) {
+      ctx.clearRect(0, 0, w, h);
+      const tr = routeTransform(replayDocument.routeBounds, w, h);
+      drawGrid(w, h, tr);
+      drawTrail(replayDocument.route, tr, 'rgba(111, 160, 172, .32)', 2);
+      drawTrail(trails.drone, tr, '#35d6d0', 3);
+      if (state.drone) drawDrone(state.drone, tr);
+      requestAnimationFrame(draw);
+      return;
+    }
     ctx.clearRect(0, 0, w, h);
     const tr = transformFor(state, w, h);
     drawGrid(w, h, tr);
-    drawReference(comparisonReference, tr);
-    drawTrail(comparisonActual, tr, '#35d6d0', 3.1);
     for (const [id, points] of trails.targets) drawTrail(points, tr, `${colors[(id-1)%colors.length]}55`, 1.4);
-    if (!comparisonReport) drawTrail(trails.drone, tr, 'rgba(53,214,208,.65)', 2.3);
+    drawTrail(trails.drone, tr, 'rgba(53,214,208,.65)', 2.3);
     drawTrail(trails.projectile, tr, 'rgba(255,189,87,.9)', 2.2);
     if (state.connected && state.drone) {
       const selected = (state.targets || []).find(t => t.selected);
@@ -559,7 +511,50 @@
     }
     requestAnimationFrame(draw);
   }
-  requestAnimationFrame(draw);
+  function setViewMode(mode) {
+    const replay = mode === 'replay';
+    canvas.hidden = !replay;
+    cameraFrame.hidden = replay || !cameraFrame.src;
+    cameraEmpty.hidden = replay || !cameraFrame.hidden;
+    if (replay) {
+      resize();
+      if (!mapAnimationStarted) {
+        mapAnimationStarted = true;
+        requestAnimationFrame(draw);
+      }
+    }
+  }
+
+  // Camera frames are observations from AirSim, separate from the map renderer.
+  const cameraFrame = document.getElementById('airsimFrame');
+  const cameraEmpty = document.getElementById('cameraEmpty');
+  let cameraPending = false;
+  async function pollCamera() {
+    if (displayMode === 'replay') return;
+    if (cameraPending) return;
+    cameraPending = true;
+    try {
+      const response = await fetch('/api/camera', {cache:'no-store', signal:AbortSignal.timeout(2500)});
+      if (!response.ok) throw new Error('Камера ще не підключена.');
+      const packet = await response.json();
+      if (displayMode === 'replay') return;
+      if (!packet.connected) throw new Error(packet.error || 'Немає зображення AirSim.');
+      const age = Date.now() - packet.received_unix_ms;
+      if (!Number.isFinite(age) || age > 3000) throw new Error('Кадри перестали надходити. Повторно запусти START_COURSEWORK.cmd.');
+      if (typeof packet.png_base64 !== 'string' || !packet.png_base64.startsWith('iVBORw0KGgo'))
+        throw new Error('AirSim повернув некоректний кадр.');
+      cameraFrame.src = 'data:image/png;base64,' + packet.png_base64;
+      cameraFrame.hidden = false;
+      cameraEmpty.hidden = true;
+    } catch (error) {
+      if (displayMode === 'replay') return;
+      cameraFrame.hidden = true;
+      cameraEmpty.hidden = false;
+      cameraEmpty.textContent = error.message;
+    } finally { cameraPending = false; }
+  }
+  setInterval(pollCamera, 500);
+  pollCamera();
 
   function fmt(v, digits=1) { return Number.isFinite(+v) ? (+v).toFixed(digits) : '—'; }
   function updateUI(s) {
@@ -660,129 +655,7 @@
   function stopReplay() {
     if (replayTimer) clearInterval(replayTimer);
     replayTimer = null; replayDocument = null; displayMode = 'live'; resetTrails(); previousRun = null;
-  }
-
-  function clearComparison() {
-    comparisonReference = []; comparisonActual = []; comparisonReport = null;
-    document.getElementById('comparison').hidden = true;
-    document.getElementById('referenceLegend').hidden = true;
-    document.getElementById('compareStatus').textContent =
-      'Для порівняння вибери CSV-журнал ДЗ11. Файл не надсилається на сервер.';
-  }
-
-  function validatePath(points, label, maxPoints = 2000) {
-    if (!Array.isArray(points) || points.length < 2 || points.length > maxPoints) {
-      throw new Error(`${label}: потрібно від 2 до ${maxPoints} точок.`);
-    }
-    let previousTime = -Infinity;
-    return points.map((p, i) => {
-      if (!p || typeof p.x !== 'number' || typeof p.y !== 'number' || typeof p.t !== 'number') {
-        throw new Error(`${label}: відсутні числові координати або час у записі ${i + 1}.`);
-      }
-      const x = Number(p.x), y = Number(p.y), t = Number(p.t);
-      if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(t) ||
-          t <= previousTime) {
-        throw new Error(`${label}: некоректна точка або час у записі ${i + 1}.`);
-      }
-      previousTime = t;
-      return { x, y, t };
-    });
-  }
-
-  function pathLength(points) {
-    let length = 0;
-    for (let i = 1; i < points.length; i++) {
-      length += Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
-    }
-    return length;
-  }
-
-  function pointToSegmentDistance(p, a, b) {
-    const dx = b.x - a.x, dy = b.y - a.y;
-    const lengthSquared = dx * dx + dy * dy;
-    const fraction = lengthSquared === 0 ? 0 :
-      Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / lengthSquared));
-    return Math.hypot(p.x - (a.x + fraction * dx), p.y - (a.y + fraction * dy));
-  }
-
-  function comparePaths(reference, actual) {
-    const distances = actual.map(point => {
-      let best = Infinity;
-      for (let i = 1; i < reference.length; i++) {
-        best = Math.min(best, pointToSegmentDistance(point, reference[i - 1], reference[i]));
-      }
-      return best;
-    });
-    const sorted = [...distances].sort((a, b) => a - b);
-    return {
-      mean_m: distances.reduce((sum, value) => sum + value, 0) / distances.length,
-      p95_m: sorted[Math.ceil(.95 * sorted.length) - 1],
-      max_m: sorted[sorted.length - 1],
-      reference_samples: reference.length,
-      actual_samples: actual.length,
-      reference_length_m: pathLength(reference),
-      actual_length_m: pathLength(actual),
-      reference_duration_s: reference.at(-1).t - reference[0].t,
-      actual_duration_s: actual.at(-1).t - actual[0].t
-    };
-  }
-  window.courseworkComparePaths = comparePaths;
-
-  async function compareRun(button) {
-    const status = document.getElementById('compareStatus');
-    const input = document.getElementById('hw11TelemetryFile');
-    clearComparison();
-    if (!input.files.length) { status.textContent = 'Спочатку вибери CSV-журнал телеметрії ДЗ11.'; return; }
-    if (!document.getElementById('sameScenario').checked) {
-      status.textContent = 'Підтверди однакові умови, координати та ділянку польоту ДЗ11 й AirSim.'; return;
-    }
-    button.disabled = true;
-    try {
-      if (input.files[0].size > 5_000_000) throw new Error('Файл завеликий (межа 5 МБ).');
-      const reference = Hw11Telemetry.parse(await input.files[0].text());
-      const response = await fetch('/api/trace', { cache: 'no-store' });
-      if (!response.ok) throw new Error('Сервер не віддає запис фактичного шляху AirSim.');
-      const trace = await response.json();
-      if (trace.schema !== 1 || !trace.run_id) throw new Error('Ще немає записаного запуску AirSim.');
-      const actual = validatePath(trace.samples, 'AirSim', 5000);
-      const metrics = comparePaths(reference, actual);
-      stopReplay();
-      comparisonReference = reference; comparisonActual = actual;
-      comparisonReport = {
-        schema: 2, created_at: new Date().toISOString(),
-        reference_source: 'hw11-telemetry-v1', comparison_plane: 'XY',
-        reference_file: input.files[0].name, airsim_run_id: trace.run_id,
-        airsim_scenario: trace.scenario || null,
-        matching_initial_conditions_confirmed_by_user: true,
-        metric: 'Відстань від кожної точки AirSim до найближчого сегмента записаного шляху ДЗ11',
-        metrics,
-        caveat: 'Геометричне порівняння без синхронізації часу; не доводить правильний напрям чи порядок руху та не є оцінкою точності ураження.'
-      };
-      document.getElementById('compareMean').textContent = `${fmt(metrics.mean_m, 2)} м`;
-      document.getElementById('compareP95').textContent = `${fmt(metrics.p95_m, 2)} м`;
-      document.getElementById('compareMax').textContent = `${fmt(metrics.max_m, 2)} м`;
-      document.getElementById('compareCounts').textContent =
-        `${metrics.reference_samples} / ${metrics.actual_samples}`;
-      document.getElementById('compareRefTime').textContent = `${fmt(metrics.reference_duration_s, 1)} с`;
-      document.getElementById('compareLiveTime').textContent = `${fmt(metrics.actual_duration_s, 1)} с`;
-      document.getElementById('compareNote').textContent =
-        `Довжина шляху XY: ДЗ11 ${fmt(metrics.reference_length_m, 1)} м, AirSim ${fmt(metrics.actual_length_m, 1)} м. ` + comparisonReport.caveat;
-      document.getElementById('comparison').hidden = false;
-      document.getElementById('referenceLegend').hidden = false;
-      status.textContent = `Порівняно з запуском AirSim ${trace.run_id}. Фіолетова лінія — запис телеметрії ДЗ11, блакитна — AirSim.`;
-    } catch (error) {
-      clearComparison();
-      status.textContent = `Не вдалося порівняти: ${error.message}`;
-    } finally { button.disabled = false; }
-  }
-
-  function saveComparison() {
-    if (!comparisonReport) return;
-    const blob = new Blob([JSON.stringify(comparisonReport, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url; link.download = 'trajectory-comparison.json'; link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setViewMode('live');
   }
 
   function replayBounds(steps) {
@@ -828,11 +701,18 @@
         parsed.steps.some(step => !step.position || !Number.isFinite(+step.position.x) || !Number.isFinite(+step.position.y))) {
       throw new Error('очікується непорожній масив steps із position.x та position.y');
     }
-    stopReplay(); clearComparison(); displayMode = 'replay'; resetTrails(); previousRun = null;
+    stopReplay(); displayMode = 'replay'; resetTrails(); previousRun = null;
+    const route = parsed.steps.map(step => ({x:+step.position.x, y:+step.position.y}));
+    const xs = route.map(point => point.x), ys = route.map(point => point.y);
     replayDocument = {
       steps: parsed.steps, bounds: replayBounds(parsed.steps),
+      route, routeBounds: {
+        min_x: Math.min(...xs), max_x: Math.max(...xs),
+        min_y: Math.min(...ys), max_y: Math.max(...ys)
+      },
       name: fileName, runId: `json-${Date.now()}`
     };
+    setViewMode('replay');
     let index = 0; replayStep(index);
     replayTimer = setInterval(() => {
       index += 1;
@@ -863,19 +743,13 @@
   }
 
   document.getElementById('restart').addEventListener('click', e => {
-    stopReplay(); clearComparison();
+    stopReplay();
     const curveId = encodeURIComponent(curveSelect.value);
     const ammo = encodeURIComponent(ammoSelect.value);
     curveSelect.dataset.touched = ''; ammoSelect.dataset.touched = '';
     action(`/api/restart?curve_id=${curveId}&ammo=${ammo}`, e.currentTarget);
   });
   document.getElementById('playJson').addEventListener('click', e => startJsonReplay(e.currentTarget));
-  document.getElementById('compareRun').addEventListener('click', e => compareRun(e.currentTarget));
-  document.getElementById('hw11TelemetryFile').addEventListener('change', () => {
-    clearComparison();
-    document.getElementById('sameScenario').checked = false;
-  });
-  document.getElementById('saveComparison').addEventListener('click', saveComparison);
   document.getElementById('stop').addEventListener('click', e => { stopReplay(); action('/api/stop', e.currentTarget); });
   document.getElementById('close').addEventListener('click', e => { stopReplay(); action('/api/close', e.currentTarget); });
 </script>

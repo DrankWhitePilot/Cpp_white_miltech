@@ -9,6 +9,7 @@ $airSimExe = $config.SceneExe
 $project = "$($config.LinuxProject)/coursework_ros"
 $distro = $config.Distro
 $linuxUser = $config.LinuxUser
+$containerName = $config.ContainerName
 
 if (-not (Test-Path -LiteralPath $serverScript)) {
   throw "Не знайдено DASHBOARD_SERVER.ps1 поруч із файлом запуску."
@@ -45,17 +46,19 @@ foreach ($name in $stoppedNames) {
   }
 }
 
-$containerFound = $false
-foreach ($name in $names) {
-  if ([string]::IsNullOrWhiteSpace($name)) { continue }
-  & wsl.exe -d $distro -u $linuxUser -- docker exec $name test -d $project 2>$null
-  if ($LASTEXITCODE -eq 0) {
-    $containerFound = $true
-    break
-  }
+if ($containerName) {
+  & wsl.exe -d $distro -- docker inspect $containerName 2>$null | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw "Не знайдено контейнер курсової: $containerName" }
+  & wsl.exe -d $distro -- docker start $containerName | Out-Null
+  $name = $containerName
+} else {
+  $name = $names | Where-Object {
+    & wsl.exe -d $distro -u $linuxUser -- docker exec $_ test -d $project 2>$null
+    $LASTEXITCODE -eq 0
+  } | Select-Object -First 1
 }
-if (-not $containerFound) {
-  throw "Контейнер C++ курсової не запущено. Запусти dev container із проектом, а потім натисни цей файл ще раз."
+if (-not $name) {
+  throw "Контейнер C++ курсової не знайдено."
 }
 
 & wsl.exe -d $distro -u $linuxUser -- docker exec $name test -f "$($config.LinuxProject)/install/coursework/setup.bash" 2>$null
@@ -67,7 +70,7 @@ Write-Host "Відкриваю панель керування..." -ForegroundCo
 $serverOnline = $false
 try {
   $response = Invoke-RestMethod -Uri "${dashboardUrl}api/health" -TimeoutSec 2
-  $serverOnline = $response.ok -eq $true
+  $serverOnline = $response.ok -eq $true -and $response.app -eq 'coursework-dashboard'
 } catch {}
 
 if (-not $serverOnline) {
@@ -77,7 +80,7 @@ if (-not $serverOnline) {
     Start-Sleep -Milliseconds 250
     try {
       $response = Invoke-RestMethod -Uri "${dashboardUrl}api/health" -TimeoutSec 1
-      if ($response.ok -eq $true) { $serverOnline = $true; break }
+      if ($response.ok -eq $true -and $response.app -eq 'coursework-dashboard') { $serverOnline = $true; break }
     } catch {}
   }
 }
@@ -85,9 +88,15 @@ if (-not $serverOnline) {
   throw "Не вдалося відкрити панель на ${dashboardUrl}. Перевір, чи порт 8080 не зайнятий іншою програмою."
 }
 
+$cameraFeed = Join-Path $PSScriptRoot 'CAMERA_FEED.ps1'
+if (Test-Path -LiteralPath $cameraFeed -PathType Leaf) {
+  Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @(
+    '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$cameraFeed`"") | Out-Null
+}
+
 if (-not $NoBrowser) { Start-Process $dashboardUrl }
 Write-Host "Панель готова: $dashboardUrl" -ForegroundColor Green
 Write-Host "1. Вибери криві руху цілей."
 Write-Host "2. Вибери боєприпас."
-Write-Host "3. Натисни 'ЗАПУСТИТИ AIRSIM' у панелі."
+Write-Host "3. Натисни 'ЗАПУСТИТИ СИМУЛЯЦІЮ' у панелі."
 Write-Host "Для свого simulation.json вибери файл і натисни 'ВІДТВОРИТИ'."

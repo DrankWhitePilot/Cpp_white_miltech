@@ -1,21 +1,15 @@
-# Перевірка журналу телеметрії
+# Перевірки Windows-панелі
 
-Ці тести використовують синтетичні дані; вони не запускають контролер,
-UART, GPIO або симуляцію польоту.
+Статичний тест перевіряє, що фінальна панель містить десять сценаріїв,
+п'ять наборів параметрів, кнопки керування, відтворення `simulation.json`
+і живий кадр AirSim. Окремо захищено від повернення видалених елементів
+експериментального порівняння та регулятора камери.
 
-З кореня репозиторію в Linux:
+З кореня репозиторію:
 
 ```bash
-test_dir=$(mktemp -d /tmp/hw11-telemetry-test.XXXXXX)
-g++ -std=c++20 -Wall -Wextra -Werror -Ihomework_11/include \
-  coursework_ros/tests/telemetry_log_test.cpp -o "$test_dir/telemetry_log_test"
-"$test_dir/telemetry_log_test" "$test_dir/synthetic_telemetry.csv"
-HW11_LOG_FIXTURE="$test_dir/synthetic_telemetry.csv" \
-  node coursework_ros/tests/telemetry_parser.test.js
+node --test coursework_ros/tests/dashboard_static.test.js
 ```
 
-Остання команда потребує Node.js. Якщо він доступний тільки у Windows,
-скопіювати синтетичний CSV і передати його шлях через змінну
-`HW11_LOG_FIXTURE` перед запуском того самого JavaScript-тесту.
-Без змінної міжмовний тест позначається як пропущений; решта перевірок
-читача виконується. Читач для тесту береться безпосередньо з робочої HTML-панелі.
+Тест не замінює повний запуск AirSim. Ручний приймальний сценарій наведено
+у `docs/VERIFICATION.md`.

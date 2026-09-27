@@ -24,6 +24,7 @@
   return [pscustomobject]@{
     Distro = [string]$raw.Distro
     LinuxUser = [string]$raw.LinuxUser
+    ContainerName = [string]$raw.ContainerName
     LinuxProject = ([string]$raw.LinuxProject).TrimEnd([char]'/')
     SceneExe = [string]$raw.SceneExe
     AirSimHost = [string]$raw.AirSimHost
